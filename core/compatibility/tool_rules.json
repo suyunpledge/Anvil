@@ -1,0 +1,267 @@
+{
+  "model": {
+    "tag": "fableforge-ai/mythos-v2-8b:q4_k_m",
+    "base": "qwen3",
+    "params": "8.2B",
+    "quant": "Q4_K_M",
+    "ctx_declared": 40960,
+    "ctx_interactive_max": 16384,
+    "native_capabilities": [
+      "tools",
+      "thinking",
+      "completion"
+    ]
+  },
+  "rules": [
+    {
+      "id": "R1",
+      "name": "分批工具集",
+      "statement": "按节点类型授权工具，绝不暴露全集；编辑节点不得同时提供 apply_patch 与 write_file。",
+      "evidence": [
+        "E9：点名不存在的工具时转调 run_shell 执行 rm -rf",
+        "E15：同时给两种写工具时会选整文件重写"
+      ],
+      "enforced": [
+        "TOOLSETS",
+        "tools_for()"
+      ]
+    },
+    {
+      "id": "R2",
+      "name": "危险参数闸",
+      "statement": "run_shell 等受控工具的参数字符串必须过危险模式正则；命中即判死，不回炉重试。",
+      "evidence": [
+        "E9：实测生成 rm -rf /path/to/repo"
+      ],
+      "enforced": [
+        "DESTRUCTIVE_PATTERNS",
+        "GATED_TOOLS",
+        "check_safety()"
+      ]
+    },
+    {
+      "id": "R3",
+      "name": "思考预算",
+      "statement": "slot/judge 关思考（快且不掉质量）；plan/repair/edit 必须开思考。",
+      "evidence": [
+        "E13：填槽类关思考延迟 4-8s→约 1s，质量不变",
+        "E15：★ 编辑节点关思考会从 apply_patch 退化成 write_file 整文件重写"
+      ],
+      "enforced": [
+        "THINK_POLICY"
+      ]
+    },
+    {
+      "id": "R4",
+      "name": "温度阶梯",
+      "statement": "首轮永远 temperature=0；best-of-N 逐档升温 0 → 0.7 → 1.0。",
+      "evidence": [
+        "H7/H8：温度 0 与 0.7 各三次均通过，0 更可复现"
+      ],
+      "enforced": [
+        "TEMP_LADDER",
+        "fill_slot(n=)"
+      ]
+    },
+    {
+      "id": "R5",
+      "name": "上下文配额显式化",
+      "statement": "每个节点显式指定 num_ctx；交互场景上限 16384。需要更长上下文时走检索精简，不是调大窗口。",
+      "evidence": [
+        "E12：超限直接 400（14858 vs 8192），不静默截断",
+        "E16：★ num_ctx=32768 + 大前置内容实测 240s 超时"
+      ],
+      "enforced": [
+        "CTX_POLICY",
+        "CTX_INTERACTIVE_MAX",
+        "ContextOverflow"
+      ]
+    },
+    {
+      "id": "R6",
+      "name": "format 与 tools 互斥",
+      "statement": "任何情况下不得同时传 format 与 tools；schema 约束一律走工具的 parameters 字段。",
+      "evidence": [
+        "E6：★ 加 format 后工具调用完全消失（n_tc=0），且参数丢字段"
+      ],
+      "enforced": [
+        "_raw() 不提供 format 入口"
+      ]
+    },
+    {
+      "id": "R7",
+      "name": "框架供计划",
+      "statement": "模型只填槽，不规划。多步任务由框架拆成多轮单槽调用，前一步结果作为下一步输入。",
+      "evidence": [
+        "E7：直接要求「改代码」它只做第一步 read",
+        "E8：★ 框架把 read 结果喂回后，立刻正确产出 apply_patch 嵌套参数"
+      ],
+      "enforced": [
+        "fill_slot() 接口形状"
+      ]
+    },
+    {
+      "id": "R8",
+      "name": "gate 为唯一真相源",
+      "statement": "模型自评不进入决策；通过与否由程序化 gate（语法/类型/lint/测试）判定。",
+      "evidence": [
+        "模型声明无自知之明；I4 显示它在信息不足时会反问而非臆造"
+      ],
+      "enforced": [
+        "框架侧 gate（本模块外）"
+      ]
+    },
+    {
+      "id": "R9",
+      "name": "参数规范化",
+      "statement": "所有 arguments 按 JSON Schema 递归归一类型（\"10\"→10、\"true\"→True），缺必填项直接拒收。",
+      "evidence": [
+        "E2：int/bool/array 抽取本身可靠，规范化用于兜底",
+        "E11：缺参时字面填入 path=\"app\"，框架必须自行解析路径"
+      ],
+      "enforced": [
+        "normalize_args()",
+        "_coerce()"
+      ]
+    },
+    {
+      "id": "R10",
+      "name": "no_call 是合法结果",
+      "statement": "空 tool_calls 不当作失败；作为「需要反问 / 无需工具」的正常分支。",
+      "evidence": [
+        "E3：闲聊与常识问答均正确不调用",
+        "E10：信息不足时正确反问"
+      ],
+      "enforced": [
+        "FillResult(kind='no_call')"
+      ]
+    },
+    {
+      "id": "R11",
+      "name": "能力画像闭环",
+      "statement": "每次 gate 结果回写画像；路由、N 取值、降级人审均查画像。",
+      "evidence": [
+        "云端框架因计费无法做画像探测；本地探测成本为零"
+      ],
+      "enforced": [
+        "record()",
+        "pass_rate()",
+        "node_profiles.json"
+      ]
+    },
+    {
+      "id": "R12",
+      "name": "失败分类",
+      "statement": "失败必须归到确定类别：tool_call / no_call / schema_violation / unauthorized_tool / unsafe_argument / context_overflow / transport_error / exhausted。",
+      "evidence": [
+        "四轮共 40 用例，失败 6 例可全部归因，无模糊失败",
+        "本轮新增 unauthorized_tool：越权调用（在 registry 里、不在本节点授权集）属安全事件，与一般格式噪声分开计数与告警"
+      ],
+      "enforced": [
+        "FillResult.kind"
+      ]
+    }
+  ],
+  "toolsets": {
+    "recon": [
+      "list_dir",
+      "read_file",
+      "search_code"
+    ],
+    "verify": [
+      "read_file",
+      "run_tests",
+      "search_code"
+    ],
+    "edit": [
+      "read_file",
+      "apply_patch",
+      "search_code"
+    ],
+    "create": [
+      "read_file",
+      "write_file"
+    ],
+    "commit": [
+      "git_commit",
+      "list_dir"
+    ],
+    "shell": [
+      "run_shell"
+    ],
+    "judge": []
+  },
+  "gated_tools": [
+    "run_shell"
+  ],
+  "destructive_patterns": [
+    {
+      "pattern": "\\brm\\s+-[a-zA-Z]*[rf]",
+      "label": "递归/强制删除"
+    },
+    {
+      "pattern": "\\brmdir\\s+/s",
+      "label": "递归删目录"
+    },
+    {
+      "pattern": "\\bdel\\s+/[sfq]",
+      "label": "强制删除"
+    },
+    {
+      "pattern": "Remove-Item.*-Recurse",
+      "label": "PowerShell 递归删除"
+    },
+    {
+      "pattern": "\\bformat\\s+[a-zA-Z]:",
+      "label": "格式化盘"
+    },
+    {
+      "pattern": "\\bmkfs",
+      "label": "格式化文件系统"
+    },
+    {
+      "pattern": ":\\(\\)\\s*\\{.*\\};\\s*:",
+      "label": "fork bomb"
+    },
+    {
+      "pattern": "\\bgit\\s+push\\s+.*--force",
+      "label": "强推"
+    },
+    {
+      "pattern": "\\bgit\\s+reset\\s+--hard",
+      "label": "硬回退"
+    },
+    {
+      "pattern": "curl[^|]*\\|\\s*(ba)?sh",
+      "label": "管道执行远端脚本"
+    },
+    {
+      "pattern": "\\bdd\\s+if=.*of=/dev/",
+      "label": "dd 写设备"
+    },
+    {
+      "pattern": ">\\s*/dev/sd",
+      "label": "写块设备"
+    }
+  ],
+  "think_policy": {
+    "slot": false,
+    "judge": false,
+    "plan": true,
+    "repair": true,
+    "edit": true
+  },
+  "ctx_policy": {
+    "recon": 16384,
+    "verify": 16384,
+    "edit": 16384,
+    "create": 16384,
+    "commit": 8192,
+    "judge": 8192
+  },
+  "temp_ladder": [
+    0.0,
+    0.7,
+    1.0
+  ]
+}

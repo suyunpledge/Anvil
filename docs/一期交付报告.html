@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Local Model IDE 一期交付 · 2026-09-28</title>
+<style>
+:root{
+  --paper:#f6f6f4;--paper-2:#eeeee9;--ink:#16181a;--ink-2:#4a4e52;--ink-3:#7d8286;
+  --rule:#d6d6d1;--rule-2:#c2c2bc;--accent:#b04a20;--accent-soft:#f0e2d9;
+  --ok:#4a6b3f;--bad:#8c2f22;
+  --head:'Bahnschrift','Microsoft YaHei UI','Microsoft YaHei',sans-serif;
+  --body:'Segoe UI','Microsoft YaHei UI','Microsoft YaHei',sans-serif;
+  --mono:'Cascadia Mono','Consolas','Courier New',monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6}
+.shell{max-width:1220px;margin:0 auto;padding:0 32px 96px}
+.cover{border-bottom:1px solid var(--rule);padding:58px 0 36px}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.cover h1{font-family:var(--head);font-weight:600;font-size:clamp(30px,4.2vw,48px);letter-spacing:-.025em;line-height:1.08;margin:20px 0 0}
+.cover .sub{font-family:var(--head);font-weight:400;font-size:clamp(16px,1.5vw,20px);color:var(--ink-2);margin:14px 0 0}
+.cover .lede{max-width:72ch;margin:24px 0 0;font-size:17px;color:var(--ink-2)}
+.meta-row{display:flex;flex-wrap:wrap;gap:0 38px;margin-top:30px;padding-top:16px;border-top:1px solid var(--rule);font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.meta-row b{display:block;font-weight:400;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+.meta-row span{color:var(--ink-2)}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(164px,1fr));border:1px solid var(--rule-2);margin:38px 0 0;background:#fbfbf9}
+.verdict>div{padding:18px 20px;border-right:1px solid var(--rule)}
+.verdict>div:last-child{border-right:0}
+.verdict .n{font-family:var(--head);font-weight:600;font-size:clamp(22px,2.6vw,32px);letter-spacing:-.02em;line-height:1;color:var(--ink)}
+.verdict .n .u{font-size:.46em;font-weight:400;color:var(--ink-3);margin-left:3px}
+.verdict .l{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-top:9px}
+.verdict .x{font-size:12.5px;color:var(--ink-2);margin-top:5px}
+.body-grid{display:grid;grid-template-columns:190px minmax(0,1fr);gap:54px;margin-top:50px;align-items:start}
+@media(max-width:1000px){.body-grid{grid-template-columns:1fr;gap:30px}.toc{position:static;border-left:0;padding-left:0}}
+.toc{position:sticky;top:26px;border-left:1px solid var(--rule);padding-left:18px}
+.toc .toc-h{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc li{margin:0 0 8px}
+.toc a{display:block;font-size:13px;line-height:1.35;color:var(--ink-2);text-decoration:none;padding-bottom:2px;border-bottom:1px solid transparent}
+.toc a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.toc a .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-right:8px}
+section{margin:0 0 60px;scroll-margin-top:22px}
+.sec-head{display:flex;align-items:baseline;gap:14px;border-bottom:1px solid var(--rule-2);padding-bottom:10px;margin-bottom:24px}
+.sec-head .idx{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.06em}
+.sec-head h2{font-family:var(--head);font-weight:600;font-size:clamp(21px,2.2vw,28px);letter-spacing:-.018em;line-height:1.15;margin:0}
+p{max-width:72ch;margin:0 0 1.05em;color:var(--ink-2)}
+p.lead{color:var(--ink);font-size:17px}
+strong{font-weight:550;color:var(--ink)}
+code{font-family:var(--mono);font-size:.87em;background:var(--paper-2);padding:1px 5px;border-radius:3px;color:var(--ink)}
+table{width:100%;border-collapse:collapse;margin:4px 0 22px;font-size:14px}
+caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-bottom:9px}
+th{font-family:var(--head);font-weight:550;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:9px 12px 9px 0;border-bottom:1px solid var(--rule-2)}
+td{padding:9px 12px 9px 0;border-bottom:1px solid var(--rule);vertical-align:top;color:var(--ink-2)}
+td.k{color:var(--ink);font-family:var(--mono);font-size:12.5px}
+.badge{font-family:var(--mono);font-size:11px;padding:1px 7px;border:1px solid var(--rule-2);border-radius:2px;color:var(--ink-3);white-space:nowrap}
+.badge.ok{color:var(--ok);border-color:#b9c8ae}
+.badge.bad{color:var(--bad);border-color:#d8b6ae}
+pre{margin:0 0 20px;padding:14px 16px;background:#f0f0ea;border-left:2px solid var(--rule-2);overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.55;color:var(--ink)}
+pre .c{color:var(--ink-3)}
+pre .add{color:var(--ok)}
+pre .del{color:var(--bad)}
+.callout{border:1px solid var(--rule-2);border-left:3px solid var(--accent);background:var(--accent-soft);padding:18px 22px;margin:6px 0 24px}
+.callout h3{font-family:var(--head);font-weight:600;font-size:17px;margin:0 0 8px;color:var(--ink)}
+.callout p{margin:0 0 8px;color:#4a3a30}
+.callout p:last-child{margin-bottom:0}
+.callout.plain{border-left-color:var(--ok);background:#eef1ea}
+.callout.plain p{color:#3a4636}
+ul.tight{margin:0 0 20px;padding-left:20px;color:var(--ink-2)}
+ul.tight li{margin:0 0 7px;max-width:72ch}
+ol.steps{margin:0 0 20px;padding-left:22px;color:var(--ink-2)}
+ol.steps li{margin:0 0 9px;max-width:72ch}
+.diagram{margin:8px 0 26px;border:1px solid var(--rule);background:#fbfbf9;padding:16px}
+.diagram figcaption{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-top:10px}
+svg{display:block;width:100%;height:auto}
+.foot{border-top:1px solid var(--rule);margin-top:20px;padding-top:16px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header class="cover">
+  <div class="kicker">Local Model IDE · Phase 1 Delivery · 2026-09-28</div>
+  <h1>一个能独立跑起来、也能交给别人改的完整项目</h1>
+  <div class="sub">四个交付件全部落地 + 112 项离线检查 + 16 项端到端验收全绿；已按外部审查加固，并为后续 Codex 修正备好交接</div>
+  <p class="lede">上一轮立项时我提过一件担心：怕它变成一个"纸上项目"。所以这一期没有停在规划上——四个交付件都写出了可运行的代码，跑出了可复现的结果，而且专门写了一份交接说明，把已修的缺陷、仍存在的问题、验证方式、改动的边界全部列清楚。</p>
+  <div class="meta-row">
+    <div><b>位置</b><span>local-model-ide-app（本机路径已省略）</span></div>
+    <div><b>规模</b><span>75 文件 / 0.69 MB（含内嵌核心 46 个）</span></div>
+    <div><b>离线检查</b><span>112 + 核心 168 项，全绿</span></div>
+    <div><b>端到端</b><span>16/16 通过（真实 HTTP + 本地模型）</span></div>
+  </div>
+
+  <div class="verdict">
+    <div><div class="n">4<span class="u">件</span></div><div class="l">交付件全部落地</div><div class="x">网关 · 服务 · 上下文 · 扩展</div></div>
+    <div><div class="n">13<span class="u">/13</span></div><div class="l">端到端验收</div><div class="x">含"未确认不落盘"的字节级证明</div></div>
+    <div><div class="n">112<span class="u">项</span></div><div class="l">离线检查</div><div class="x">不调模型、约 10 秒跑完</div></div>
+    <div><div class="n">5<span class="u">个</span></div><div class="l">本轮修掉的缺陷</div><div class="x">都在交接文档里写明根因</div></div>
+    <div><div class="n">8<span class="u">条</span></div><div class="l">仍存在的问题</div><div class="x">如实列出，不粉饰</div></div>
+  </div>
+</header>
+
+<div class="body-grid">
+<nav class="toc">
+  <div class="toc-h">目录</div>
+  <ol>
+    <li><a href="#s1"><span class="n">01</span>交付了什么</a></li>
+    <li><a href="#s2"><span class="n">02</span>项目结构</a></li>
+    <li><a href="#s3"><span class="n">03</span>端到端验收</a></li>
+    <li><a href="#s3b"><span class="n">03b</span>外部审查后的安全加固</a></li>
+    <li><a href="#s4"><span class="n">04</span>本轮修掉的 5 个缺陷</a></li>
+    <li><a href="#s5"><span class="n">05</span>如实列出：仍存在的问题</a></li>
+    <li><a href="#s6"><span class="n">06</span>为 Codex 修正做的准备</a></li>
+    <li><a href="#s7"><span class="n">07</span>怎么跑</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="s1">
+  <div class="sec-head"><span class="idx">01</span><h2>交付了什么</h2></div>
+  <p class="lead">四个交付件 + 一套验收工具 + 两份给接手人看的文档。目标是"能独立跑、能交给别人改"，不是"能演示"。</p>
+  <table>
+    <caption>四件与配套</caption>
+    <thead><tr><th>件</th><th>位置</th><th>实际做到什么</th><th>不做</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="k">A 网关</td><td class="k">gateway/</td>
+        <td>双入口（OpenAI + Ollama 兼容）；<strong>按画像自动摘掉模型不支持的 think</strong>；每次调用写审计；出网只放行 loopback/内网，自检不过就拒启动</td>
+        <td>不做缓存 / 路由实验 / 重试策略</td>
+      </tr>
+      <tr>
+        <td class="k">B 工单服务</td><td class="k">service/</td>
+        <td>HTTP + SSE；<strong>落盘必须经人确认</strong>；协作式取消；两类工单（code / tidy）</td>
+        <td>不含业务判断（判据在 core/）</td>
+      </tr>
+      <tr>
+        <td class="k">C 上下文层</td><td class="k">context/</td>
+        <td>AST 切块 + repo map + 引用检索 + <strong>token 预算裁剪</strong>（优先级明确、可断言）</td>
+        <td>不做全仓索引、不调模型</td>
+      </tr>
+      <tr>
+        <td class="k">D 扩展</td><td class="k">extension/</td>
+        <td>侧栏工作台（建单/看 gate/看违规）、选中即解释、inline diff 审阅。<strong>纯 JS 无构建</strong></td>
+        <td>不调模型、不碰文件</td>
+      </tr>
+      <tr>
+        <td class="k">内嵌核心</td><td class="k">core/</td>
+        <td>上游框架快照（状态机 + 兼容层 + 整理 + 验证脚本），45 文件</td>
+        <td>只读消费；改动回上游同步</td>
+      </tr>
+      <tr>
+        <td class="k">验收工具</td><td class="k">scripts/</td>
+        <td><code>selftest.py</code> 一键离线自检 · <code>e2e_check.py</code> 端到端 16 项 · <code>sync_core.py</code> 核心同步 · <code>pack.py</code> 打包校验</td>
+        <td>——</td>
+      </tr>
+      <tr>
+        <td class="k">文档</td><td class="k">README / CODEX-HANDOFF / docs</td>
+        <td>上手说明 · <strong>交接说明</strong>（缺陷根因 + 验证方式 + 改动边界）· 验收清单</td>
+        <td>——</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout plain">
+    <h3>一个刻意的选择：扩展不用构建步骤</h3>
+    <p>写成纯 JS 而不是 TypeScript，是因为本机网络按流量计费，一次 <code>npm install</code> 的下载量不该花在这种事上。代价是没有类型检查，于是补了一个 35 项的静态检查脚本（命令注册、配置键、入口、转义、无外连）来补上这道防线——它确实抓到了一个真 bug（见第 04 节）。</p>
+  </div>
+</section>
+
+<section id="s2">
+  <div class="sec-head"><span class="idx">02</span><h2>项目结构：出口只有一个</h2></div>
+  <div class="diagram">
+    <svg viewBox="0 0 1140 340" role="img" aria-label="Local Model IDE 一期数据流">
+      <defs>
+        <marker id="a1" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L7,3 L0,6 z" fill="#7d8286"/>
+        </marker>
+      </defs>
+      <rect x="0" y="0" width="1140" height="340" fill="#fbfbf9"/>
+
+      <rect x="24" y="26" width="200" height="76" fill="#eef1ea" stroke="#b9c8ae"/>
+      <text x="38" y="50" font-family="Bahnschrift,Segoe UI" font-size="14" font-weight="600" fill="#16181a">D · VS Code 扩展</text>
+      <text x="38" y="72" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">侧栏工作台</text>
+      <text x="38" y="89" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">选中即解释 · diff 审阅</text>
+
+      <line x1="224" y1="64" x2="276" y2="64" stroke="#7d8286" stroke-width="1.4" marker-end="url(#a1)"/>
+
+      <rect x="280" y="26" width="212" height="76" fill="#eef1ea" stroke="#b9c8ae"/>
+      <text x="294" y="50" font-family="Bahnschrift,Segoe UI" font-size="14" font-weight="600" fill="#16181a">B · 工单服务</text>
+      <text x="294" y="72" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">HTTP + SSE · 取消</text>
+      <text x="294" y="89" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">落盘须人确认</text>
+
+      <line x1="492" y1="64" x2="544" y2="64" stroke="#7d8286" stroke-width="1.4" marker-end="url(#a1)"/>
+
+      <rect x="548" y="26" width="240" height="76" fill="#f0e2d9" stroke="#d8b6ae"/>
+      <text x="562" y="50" font-family="Bahnschrift,Segoe UI" font-size="14" font-weight="600" fill="#16181a">工单状态机（core）</text>
+      <text x="562" y="72" font-family="Segoe UI" font-size="11.5" fill="#4a3a30">读 → 改 → 语法 → 类型 → 测试</text>
+      <text x="562" y="89" font-family="Segoe UI" font-size="11.5" fill="#4a3a30">gate 是唯一真相源</text>
+
+      <line x1="788" y1="64" x2="840" y2="64" stroke="#7d8286" stroke-width="1.4" marker-end="url(#a1)"/>
+
+      <rect x="844" y="26" width="272" height="76" fill="#eef1ea" stroke="#b9c8ae"/>
+      <text x="858" y="50" font-family="Bahnschrift,Segoe UI" font-size="14" font-weight="600" fill="#16181a">A · 本地模型网关</text>
+      <text x="858" y="72" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">画像修正 · 审计 · 出网熔断</text>
+      <text x="858" y="89" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">唯一出口（8080）</text>
+
+      <line x1="980" y1="102" x2="980" y2="146" stroke="#7d8286" stroke-width="1.4" marker-end="url(#a1)"/>
+
+      <rect x="844" y="150" width="272" height="60" fill="#f4efe8" stroke="#c2c2bc"/>
+      <text x="858" y="174" font-family="Bahnschrift,Segoe UI" font-size="13.5" font-weight="600" fill="#16181a">Ollama · 23 个本地模型</text>
+      <text x="858" y="194" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">127.0.0.1:11434</text>
+
+      <rect x="548" y="150" width="240" height="60" fill="#f4efe8" stroke="#c2c2bc"/>
+      <text x="562" y="174" font-family="Bahnschrift,Segoe UI" font-size="13.5" font-weight="600" fill="#16181a">C · 上下文层</text>
+      <text x="562" y="194" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">AST 切块 · repo map · 预算</text>
+
+      <line x1="668" y1="150" x2="668" y2="104" stroke="#7d8286" stroke-width="1.2" marker-end="url(#a1)"/>
+      <line x1="788" y1="180" x2="842" y2="180" stroke="#7d8286" stroke-width="1.2" marker-end="url(#a1)"/>
+
+      <rect x="24" y="248" width="1092" height="66" fill="#f6f6f4" stroke="#c2c2bc" stroke-dasharray="4 3"/>
+      <text x="40" y="272" font-family="Bahnschrift,Segoe UI" font-size="13" font-weight="600" fill="#16181a">出网熔断边界（启动自检，命中即拒启动）</text>
+      <text x="40" y="295" font-family="Segoe UI" font-size="11.5" fill="#4a4e52">只放行 loopback 与内网段 · 每次调用写 audit.jsonl（模型 / 耗时 / 画像 / 是否摘过 think）· 无遥测 · 无插件市场 · 无自动更新</text>
+
+      <text x="24" y="336" font-family="Cascadia Mono,Consolas" font-size="11" fill="#7d8286">关键：模型输出永不直接改文件 —— 暂存区 → 三个 gate → 人确认 → 原子替换</text>
+    </svg>
+    <figcaption>图 1 · 一期数据流：出口唯一，判断权在 gate，落盘权在人</figcaption>
+  </div>
+  <p>这张图里有三处是这一期特意做的"窄口"：</p>
+  <ul class="tight">
+    <li><strong>出口只有网关一个</strong>。为了让状态机也走它（而不是绕过它直连 Ollama），网关额外开了一个 Ollama 兼容端点——因为状态机内部本来就是按 Ollama 的形状发请求的。这样画像与审计对所有调用生效，而状态机一行没改。</li>
+    <li><strong>判断权只在 gate</strong>。模型说"已完成"不产生任何效果；只有三道 gate 全过才算过。</li>
+    <li><strong>落盘权只在人</strong>。工单跑完停在 <code>awaiting_confirm</code>，目标文件一个字节都不动。</li>
+  </ul>
+</section>
+
+<section id="s3">
+  <div class="sec-head"><span class="idx">03</span><h2>端到端验收：16/16</h2></div>
+  <p>跑的是真事：起两个服务、通过 HTTP 建单、真实本地模型（mythos）出补丁、SSE 看事件、在 diff 里确认后才落盘。核心那一条是<strong>字节级比对</strong>，不是"看起来没改"。</p>
+  <table>
+    <caption>2026-09-28 实测（scripts/e2e_check.py）</caption>
+    <thead><tr><th>#</th><th>验收项</th><th>观察值</th></tr></thead>
+    <tbody>
+      <tr><td class="k">1</td><td>网关就绪</td><td><span class="badge ok">PASS</span> 127.0.0.1:8098</td></tr>
+      <tr><td class="k">2</td><td>工单服务就绪</td><td><span class="badge ok">PASS</span> 127.0.0.1:8099</td></tr>
+      <tr><td class="k">3</td><td>出网熔断生效</td><td><span class="badge ok">PASS</span> <code>outbound_block: true</code>，画像 7 / 模型 23</td></tr>
+      <tr><td class="k">4</td><td>建单返回 wo_id</td><td><span class="badge ok">PASS</span> <code>wo-…</code> running</td></tr>
+      <tr><td class="k">5</td><td>SSE 通道可用</td><td><span class="badge ok">PASS</span> 收到 snapshot 帧</td></tr>
+      <tr><td class="k">6</td><td>工单到达待确认</td><td><span class="badge ok">PASS</span> <code>awaiting_confirm</code></td></tr>
+      <tr><td class="k">7</td><td>三个 gate 全部通过</td><td><span class="badge ok">PASS</span> syntax / type / test 全 ok</td></tr>
+      <tr><td class="k">8</td><td><strong>未确认时文件字节级不变</strong></td><td><span class="badge ok">PASS</span> sha 一致</td></tr>
+      <tr><td class="k">9</td><td>确认请求成功</td><td><span class="badge ok">PASS</span> 返回落盘路径</td></tr>
+      <tr><td class="k">10</td><td>落盘后文件已变化</td><td><span class="badge ok">PASS</span> <code>c8e188b4 → 65ea2196</code></td></tr>
+      <tr><td class="k">11</td><td>实现已写入且旧代码已删除</td><td><span class="badge ok">PASS</span></td></tr>
+      <tr><td class="k">12</td><td>沙箱内测试真的跑过</td><td><span class="badge ok">PASS</span> <code>Ran 3 tests OK</code></td></tr>
+      <tr><td class="k">13</td><td>审计有本轮记录</td><td><span class="badge ok">PASS</span> 2 条（经网关）</td></tr>
+    </tbody>
+  </table>
+  <p>离线层另算：<strong>112 项</strong>（网关 18 / 上下文 18 / 服务 17 / <strong>安全回归 24</strong> / 扩展静态 35），加内嵌核心回归 <strong>168 项</strong>，全部通过。端到端还包含两条安全项：<strong>无令牌建单被拒（401）</strong>、<strong>运行期间文件被改则确认被拒（409）</strong>。</p>
+</section>
+
+<section id="s3b">
+  <div class="sec-head"><span class="idx">03b</span><h2>外部审查后的安全加固（7 条）</h2></div>
+  <p class="lead">2026-09-28 收到一份外部代码审查，提了 7 条。逐条核实后<strong>全部属实</strong>，已全部修复并加回归——这一节是修复后的实际状态（旧的 7 条结论对应的是修复前版本，不能再原样套用）。</p>
+  <table>
+    <caption>7 条与修复要点</caption>
+    <thead><tr><th>#</th><th>问题（严重度）</th><th>修复要点</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="k">1</td>
+        <td><strong>「沙箱」并非真沙箱（高）</strong><br>测试直接以当前用户权限执行模型改过的 Python，继承全部环境变量</td>
+        <td>新增 <code>sandbox.py</code>：子进程改用干净环境（丢代理与凭据类变量、HOME 指向临时目录、禁写字节码）。<br><strong>并且明确声明：这是「降低风险」而不是「真隔离」</strong>——它不阻断 <code>socket()</code>、不限文件访问；<code>real_isolation_available()</code> 如实返回不可用，<code>LOCAL_IDE_SANDBOX_STRICT=1</code> 时宁可拒跑也不假装安全</td>
+      </tr>
+      <tr>
+        <td class="k">2</td>
+        <td><strong>服务可被绕过人工确认（高）</strong><br>CORS <code>*</code> + 无鉴权 + <code>require_confirm</code> 由客户端定</td>
+        <td>令牌（启动生成、写 <code>.runtime/service-token</code>、扩展自动读取）+ CORS 收窄到 localhost / vscode-webview + <strong>服务端强制人确认</strong>（客户端传 <code>false</code> 无效）+ 可选工作目录白名单</td>
+      </tr>
+      <tr>
+        <td class="k">3</td>
+        <td><strong>运行期间改文件会被静默覆盖</strong><br>真实文件哈希在模型跑完后才记录</td>
+        <td>版本基线提到<strong>工单开始前</strong>记录；<code>_stage</code> 与 <code>confirm</code> 两处比对，不符即拒（<code>failed</code> / 409）</td>
+      </tr>
+      <tr>
+        <td class="k">4</td>
+        <td><strong>流式接口绕过出网熔断</strong><br>非流式调了校验，流式直连 Ollama；异常时审计写死 200</td>
+        <td>抽出 <code>post_ollama_stream()</code>，与非流式<strong>共用同一道出网门</strong>；审计改为如实记录真实状态（含 403/502/499 与 error）</td>
+      </tr>
+      <tr>
+        <td class="k">5</td>
+        <td><strong>tidy 确认界面看不到移动方案</strong><br><code>this.state.moves = this.state.moves</code> 是无效赋值</td>
+        <td>服务改为下发完整清单（src/dst/reason），扩展收下并渲染</td>
+      </tr>
+      <tr>
+        <td class="k">6</td>
+        <td><strong>上下文层未接入实际链路</strong><br>实现了但没人调用，仍把全文交给模型</td>
+        <td>引擎新增 <code>context_provider</code> 注入点，服务侧接上并<strong>优先读暂存区那份</strong>（与将要改的文件一致）</td>
+      </tr>
+      <tr>
+        <td class="k">7</td>
+        <td><strong>工作目录＝项目根时可能递归复制</strong><br>暂存区在 <code>.runtime/staging</code>，<code>copytree</code> 又没忽略 <code>.runtime</code></td>
+        <td>检测「暂存区与工作目录嵌套」，命中就把暂存区改到系统临时目录；忽略表补 <code>.runtime</code> / <code>node_modules</code> / <code>.venv</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <h3>修复过程中自己暴露的一个设计缺陷（最值得记）</h3>
+    <p>把上下文层接进链路之后，<strong>同一道题的端到端测试反而失败了</strong>。查下来是真问题：</p>
+    <p>裁剪后的上下文 <strong>221 token</strong>，而整个文件才 <strong>106 token</strong> —— 小文件上「裁剪」是净负担，而且模型看不到完整文件布局，把函数删错位了。</p>
+    <p>现在的口径改成<strong>只有真省才用</strong>：裁剪结果不小于全文的 90% 时，老老实实给全文，并把回退原因记进 <code>artifacts.context.skipped</code>。回归测试：<code>test_long_context_falls_back_to_full_text</code>。</p>
+    <p>教训：<strong>优化项上线前，要在「它不该生效的场景」也测一遍</strong>，否则优化会变成退化。</p>
+  </div>
+
+  <div class="callout plain">
+    <h3>关于第 1 条的准确定性（重要区分）</h3>
+    <p>加固后的 <code>sandbox.py</code> 做的是：清环境变量、掐断代理、隔离 HOME、限制 cwd 与超时。<br>
+    它<strong>做到的是</strong>「降低测试进程带来的风险」；<strong>没做到的是</strong>「真隔离」——不阻断直连 socket、不限制该用户能访问的任意文件、不限 CPU/内存。</p>
+    <p>所以它被列为仍待解决项的第 1 优先级（见下一节的待办清单）。真隔离需要 OS 级手段（Windows：Job Object + 受限令牌；Linux：bwrap/unshare），本机当前不具备。</p>
+  </div>
+</section>
+
+<section id="s4">
+  <div class="sec-head"><span class="idx">04</span><h2>本轮修掉的 5 个缺陷（附根因）</h2></div>
+  <p>这 5 个都是写代码过程中真实撞上的，每一个都写了根因和回归点——因为这类坑会重复出现。</p>
+  <table>
+    <thead><tr><th>#</th><th>症状</th><th>根因</th><th>修法</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="k">1</td>
+        <td>所有 POST 回 422，报 <code>loc:["query","request"]</code></td>
+        <td>文件顶部有 <code>from __future__ import annotations</code>，注解被变成字符串；FastAPI 拿字符串去模块全局找类型，而我把 <code>Request</code> 写在函数内部导入 → 全局没有该名字 → 被当成<strong>查询参数</strong></td>
+        <td>FastAPI 的导入提到模块顶层</td>
+      </tr>
+      <tr>
+        <td class="k">2</td>
+        <td><code>ModuleNotFoundError: No module named 'runner'</code></td>
+        <td>本机内嵌解释器是隔离模式（<code>._pth</code>），<strong>脚本所在目录不进 <code>sys.path</code></strong></td>
+        <td>显式把脚本目录 insert 进 <code>sys.path</code></td>
+      </tr>
+      <tr>
+        <td class="k">3</td>
+        <td>工单实际在等确认，快照却报 <code>done</code></td>
+        <td><code>snapshot()</code> 用结果集覆盖了顶层字段，而结果里有同名 <code>status</code>（那是引擎判定）</td>
+        <td>底层字段改名 <code>run_status</code>；顶层 <code>status</code> 不可被覆盖 + 回归测试</td>
+      </tr>
+      <tr>
+        <td class="k">4</td>
+        <td>工单跑完，审计里一条记录都没有</td>
+        <td>状态机直连 Ollama，<strong>把网关整个绕过去了</strong>——画像与审计两条承诺静默失效</td>
+        <td>加 <code>gateway/client.py</code>，把适配器的 transport 换成网关；网关加 Ollama 兼容端点；不静默降级</td>
+      </tr>
+      <tr>
+        <td class="k">5</td>
+        <td>扩展渲染时 ReferenceError</td>
+        <td>模板里引用了未定义的变量（我改模板时漏了定义）</td>
+        <td>预拼片段；静态检查器本来就盯着这类问题，这次是它抓到的</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <h3>第 4 个最值得记</h3>
+    <p>它的危险不在于"审计没记录"，而在于<strong>静默失效</strong>：工单照样跑完、结果照样对，只是"所有调用都过唯一出口"这条承诺已经破了，而没有任何东西会告诉你。</p>
+    <p>所以修的时候我做了一个相反的取舍：<strong>不允许静默退回直连</strong>。网关不可达时直接报错并告诉你怎么办，只在显式设 <code>LOCAL_LLM_VIA=direct</code> 时才允许绕过。要排障就明着排障，不要悄悄降级。</p>
+  </div>
+</section>
+
+<section id="s5">
+  <div class="sec-head"><span class="idx">05</span><h2>如实列出：仍存在的问题</h2></div>
+  <p class="lead">这一节比上一节重要。粉饰过的交接文档，会让接手人踩同样的坑。</p>
+  <table>
+    <thead><tr><th>问题</th><th>性质</th><th>影响与建议</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="k">扩展没在真实 VS Code 里点过</td>
+        <td>未验证</td>
+        <td>静态检查 35 项全过，但没装进编辑器。这是本期<strong>最需要补的一环</strong>，建议接手第一件事就是装上看一眼</td>
+      </tr>
+      <tr>
+        <td class="k">取消不是即时的</td>
+        <td>设计取舍</td>
+        <td>协作式取消，粒度是"两个节点之间"。模型正在生成时不会立刻断（一次调用可能几十秒）。要做到立刻断需把 AbortSignal 透到 HTTP 层，属改核心</td>
+      </tr>
+      <tr>
+        <td class="k">qwen2.5-coder 在"替换函数体"任务上容易写坏补丁</td>
+        <td>模型能力</td>
+        <td>它没有 thinking、不会算行号，曾把整段缩进写错（语法 gate 连拦 3 轮 → 人审）。是模型问题不是框架 bug；缓解方向是让框架提供行号锚点，而不是靠提示词</td>
+      </tr>
+      <tr>
+        <td class="k">核心依赖全靠"同级目录 import"</td>
+        <td>结构债</td>
+        <td><code>core/</code> 里模块靠隐式路径互相引用；新增入口必须记得调 <code>ensure_core_on_path()</code>。已写进交接文档，但这是长期隐患</td>
+      </tr>
+      <tr>
+        <td class="k">没有并发上限</td>
+        <td>未做</td>
+        <td>工单注册表是内存字典 + 锁，单机少量够用；真要并发跑几十个工单需要加队列与上限</td>
+      </tr>
+      <tr>
+        <td class="k">网关的模型路由是硬编码</td>
+        <td>待数据</td>
+        <td><code>ROUTES</code> 是一期初版（edit→qwen2.5-coder / chat→gemma4 / fallback→mythos）。等基准数字出来按数据改</td>
+      </tr>
+      <tr>
+        <td class="k">上下文层的符号猜测是启发式</td>
+        <td>已知局限</td>
+        <td>先从任务描述里找标识符，找不到就取第一个未实现函数。猜错时有兜底（塞整文件）不会崩，但会浪费预算</td>
+      </tr>
+      <tr>
+        <td class="k">语义归类的阈值绑定嵌入模型</td>
+        <td>标定依赖</td>
+        <td>0.62 是按 bge-m3 定的（实测命中 0.66–0.80 / 非命中 0.32–0.52）。换嵌入模型必须重标定</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s6">
+  <div class="sec-head"><span class="idx">06</span><h2>为 Codex 修正做的准备</h2></div>
+  <p>你说之后会用 Codex 再修正一遍。为此专门写了 <code>CODEX-HANDOFF.md</code>，它不是 README 的复述，而是按"接手人需要什么"组织的：</p>
+  <div class="flow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));border:1px solid var(--rule-2);background:#fbfbf9;margin:6px 0 24px">
+    <div style="padding:15px 17px;border-right:1px solid var(--rule)">
+      <div style="font-family:var(--head);font-weight:550;font-size:14.5px">先跑三条命令</div>
+      <div style="font-size:12.5px;color:var(--ink-2);margin-top:6px">确认环境是好的再动代码</div>
+    </div>
+    <div style="padding:15px 17px;border-right:1px solid var(--rule)">
+      <div style="font-family:var(--head);font-weight:550;font-size:14.5px">做了什么 / 没做什么</div>
+      <div style="font-size:12.5px;color:var(--ink-2);margin-top:6px">避免把"有意不做"当成"漏了"</div>
+    </div>
+    <div style="padding:15px 17px;border-right:1px solid var(--rule)">
+      <div style="font-family:var(--head);font-weight:550;font-size:14.5px">缺陷与可疑处</div>
+      <div style="font-size:12.5px;color:var(--ink-2);margin-top:6px">已修的写根因，未修的写清边界</div>
+    </div>
+    <div style="padding:15px 17px;border-right:1px solid var(--rule)">
+      <div style="font-family:var(--head);font-weight:550;font-size:14.5px">怎么验证</div>
+      <div style="font-size:12.5px;color:var(--ink-2);margin-top:6px">含对照基线，改完自己比</div>
+    </div>
+    <div style="padding:15px 17px">
+      <div style="font-family:var(--head);font-weight:550;font-size:14.5px">改动边界</div>
+      <div style="font-size:12.5px;color:var(--ink-2);margin-top:6px">哪些地方别动、为什么</div>
+    </div>
+  </div>
+  <p>其中最要紧的是<strong>改动边界</strong>那节，因为它决定修正会不会把结构改坏：</p>
+  <ul class="tight">
+    <li><code>core/</code> 是快照——在这里改业务逻辑，下次同步会被覆盖。正确做法是改上游再同步。</li>
+    <li><strong>不要把判断逻辑放进扩展</strong>。一旦扩展自己判断"改得对不对"，gate 这个唯一真相源就被拆了。</li>
+    <li><strong>不要在网关里加"顺手的功能"</strong>（缓存、重试、路由实验）。它现在的价值是"唯一出口 + 可审计"，加东西会稀释这条。</li>
+  </ul>
+  <p>另外，核心回归的 168 项、端到端 16 项、离线 112 项都是可复跑的对照基线，改完直接比数字，不靠感觉。</p>
+</section>
+
+<section id="s7">
+  <div class="sec-head"><span class="idx">07</span><h2>怎么跑</h2></div>
+  <div class="callout">
+    <h3>接手第一优先级：真隔离（目前只是「降低风险」）</h3>
+    <p>加固后的 <code>sandbox.py</code> 清环境变量、掐断代理、隔离 HOME、限制 cwd 与超时，
+    但<strong>不阻断直连 socket、不限制文件访问、不限 CPU/内存</strong>。要真正硬它，
+    需要接 OS 级手段：Windows 用 Job Object + 受限令牌，或改走容器 / WSL；Linux 用 bwrap / unshare。</p>
+    <p>其余待办按顺序：在真实 VS Code 里跑一遍扩展 → 跑基准数字（单次 vs best-of-5）→
+    行内补全 → 多文件工单。完整清单见 <code>CODEX-HANDOFF.md</code> 第 4.3 节。</p>
+  </div>
+  <pre><span class="c"># 解释器：本机必须用 AutoClaw 内嵌 python（自带 fastapi/uvicorn）</span>
+$PY = "C:\Program Files\AutoClaw\resources\python\python.exe"
+
+<span class="c"># 1) 起两个服务</span>
+& $PY gateway/app.py      <span class="c"># 127.0.0.1:8080（可加 --selfcheck 只跑自检）</span>
+& $PY service/app.py      <span class="c"># 127.0.0.1:8090</span>
+
+<span class="c"># 2) 离线自检（112 项 + 核心 168 项，约 10 秒，不调模型）</span>
+& $PY scripts/selftest.py --core
+
+<span class="c"># 3) 端到端验收（16 项，真实 HTTP + 本地模型，约 3-5 分钟）</span>
+& $PY scripts/e2e_check.py
+
+<span class="c"># 4) 扩展静态检查</span>
+node extension/tests/check.js
+
+<span class="c"># 5) 打包并逐文件校验</span>
+& $PY scripts/pack.py</pre>
+  <p>VS Code 里用：把 <code>extension/</code> 复制或软链到 <code>~/.vscode/extensions/local-model-ide</code>，重启编辑器，左侧出现 <b>Local IDE</b> 图标。</p>
+</section>
+
+<div class="foot">
+  <div>Local Model IDE 一期交付 · 2026-09-28</div>
+  <div>离线 112 + 核心 168 项 ｜ 端到端 16/16 ｜ 73 文件打包校验一致</div>
+</div>
+
+</main>
+</div>
+</div>
+</body>
+</html>

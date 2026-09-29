@@ -1,0 +1,124 @@
+{
+  "name": "local-model-ide",
+  "displayName": "Local Model IDE",
+  "description": "本地模型专属 IDE：离线可用的编码工作台（工单状态机 + 确定性 gate + 人确认落盘）",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "localIde.newWorkOrder",
+        "title": "Local IDE: 新建工单（实现/修改）",
+        "category": "Local IDE"
+      },
+      {
+        "command": "localIde.tidyFolder",
+        "title": "Local IDE: 整理文件夹（先出方案）",
+        "category": "Local IDE"
+      },
+      {
+        "command": "localIde.explainSelection",
+        "title": "Local IDE: 解释选中的代码",
+        "category": "Local IDE"
+      },
+      {
+        "command": "localIde.reviewDiff",
+        "title": "Local IDE: 审阅暂存改动（diff）",
+        "category": "Local IDE"
+      },
+      {
+        "command": "localIde.confirmApply",
+        "title": "Local IDE: 确认落盘",
+        "category": "Local IDE"
+      },
+      {
+        "command": "localIde.cancelOrder",
+        "title": "Local IDE: 取消当前工单",
+        "category": "Local IDE"
+      },
+      {
+        "command": "localIde.showAudit",
+        "title": "Local IDE: 查看调用审计",
+        "category": "Local IDE"
+      },
+      {
+        "command": "localIde.checkServices",
+        "title": "Local IDE: 检查本地服务",
+        "category": "Local IDE"
+      }
+    ],
+    "configuration": {
+      "title": "Local Model IDE",
+      "properties": {
+        "localIde.gatewayUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8080",
+          "description": "本地模型网关地址（OpenAI 兼容；所有模型调用的唯一出口）"
+        },
+        "localIde.serviceUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8090",
+          "description": "工单服务地址"
+        },
+        "localIde.defaultAdapter": {
+          "type": "string",
+          "default": "mythos",
+          "description": "默认适配层（见 /presets 返回的画像清单）"
+        },
+        "localIde.autoApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "工单完成后是否自动落盘。默认 false —— 必须先人在 diff 里看过再点确认。（服务端策略可强制要求确认，见 LOCAL_IDE_REQUIRE_CONFIRM）"
+        },
+        "localIde.serviceToken": {
+          "type": "string",
+          "default": "",
+          "description": "工单服务令牌（留空则自动从工作区 .runtime/service-token 读取）"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "localIdeContainer",
+          "title": "Local IDE",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "localIdeContainer": [
+        {
+          "id": "localIde.panel",
+          "name": "本地模型工作台",
+          "type": "webview"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "localIde.explainSelection",
+          "when": "editorHasSelection",
+          "group": "localIde@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "node -e \"require('./extension.js')\""
+  },
+  "license": "MIT",
+  "private": true
+}
