@@ -188,6 +188,16 @@ code 工单走「暂存区 → 三个 gate → 人确认 → 原子替换」，t
    `micro_bench_result.json` 已含 notes 段。建议从 gemma4:e4b 开始做编辑主力，
    再扩到 mythos（需补 best-of-5 与 needs_input 的自动回复路径）。
 
+
+   **第二轮（0930 晚，6 模型，micro_bench_result_round2.json）：**
+     · ministral-3:8b        PASS  41.0s  o/o/o  ← 本批最快一次全绿
+     · qwen3.5:9b            PASS  41.5s  o/o/o  ← 次稳（与 gemma4 相当）
+     · qwen3:8b              PASS  94.5s  f/o/o/o（首轮语法错、修复轮过）
+     · deepseek-coder:6.7b   FAIL   0.6s  秒失败（老 codellama 系不认 apply_patch）
+     · gpt-oss:20b           FAIL 420.2s  超时（14GB 59% 落 CPU，显存不够，非能力问题）
+     · mythos-v2-8b:q4_k_m   FAIL  10.6s  上轮疑瞬态，本轮真失败（security_abort/needs_input）
+   **编辑主力排序（通过率×速度）：ministral-3:8b ≈ qwen3.5:9b ≈ gemma4:e4b > qwen3:8b > 其余。**
+
 9. **本轮（0930）踩坑（务必读到）：.gitignore 行内中文注释会让规则被解析跳过。**
    写法 `core/compatibility/node_profiles.json  # 运行时累加` 这条规则不会被 Git 识别。
    把注释挪到独立一行就生效。**规律**：行内 `规则 # 注释` 的写法在 UTF-8 中文 + LF 文件
