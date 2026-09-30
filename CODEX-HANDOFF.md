@@ -198,6 +198,17 @@ code 工单走「暂存区 → 三个 gate → 人确认 → 原子替换」，t
      · mythos-v2-8b:q4_k_m   FAIL  10.6s  上轮疑瞬态，本轮真失败（security_abort/needs_input）
    **编辑主力排序（通过率×速度）：ministral-3:8b ≈ qwen3.5:9b ≈ gemma4:e4b > qwen3:8b > 其余。**
 
+   **第三轮（0930 深夜，6+3 模型，micro_bench_result_round3{,b}.json）：**
+     · mythos-v2-8b:latest   PASS 180.9s  o/o/o  ← 全精度能过（q4 量化两轮失败，互证非瞬态）
+     · deepseek-r1:7b        FAIL  31.9s   needs_input（补丁写成 ```fix markdown 文本）
+     · HY-MT:7b              FAIL   0.6s   模板无 tools（翻译模型，预期内）
+     · glm4:9b / llama3.1:8b FAIL   ——    9/28 体检"不调工具/选错工具"+ 未登记画像 think 400（能力问题，勿补画像）
+     · gemma2:9b / yi:6b-200k FAIL  ——    Ollama 模板层 does not support tools（硬限制）
+     · qwen3:14b             FAIL 356.4s   显存不够 49% 落 CPU 超时（9/28 体检能力四项全过，硬件限制）
+   **显存分级：8-9B 全 GPU 可跑；qwen3:14b / gpt-oss:20b 超显存落 CPU，交互不可用。**
+   **三轮 12 模型总排序：ministral-3:8b ≈ qwen3.5:9b ≈ gemma4:e4b > mythos-latest（慢但真）> qwen3:8b > 其余。**
+   **测试命令注意：模型名必须传 Ollama 全名**（fableforge-ai/mythos-v2-8b:latest 而非 mythos-v2-8b:latest），短名 Ollama 报 not found。
+
 9. **本轮（0930）踩坑（务必读到）：.gitignore 行内中文注释会让规则被解析跳过。**
    写法 `core/compatibility/node_profiles.json  # 运行时累加` 这条规则不会被 Git 识别。
    把注释挪到独立一行就生效。**规律**：行内 `规则 # 注释` 的写法在 UTF-8 中文 + LF 文件
