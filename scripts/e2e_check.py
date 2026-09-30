@@ -214,8 +214,10 @@ def main(argv=None) -> int:
         print("\n— SSE 事件流（只取首帧，确认通道通）—")
         sse_ok = False
         try:
-            with OPENER.open("http://127.0.0.1:%d/wo/%s/events?once=1" % (SVC_PORT, wo),
-                             timeout=20) as r:
+            req_ev = urllib.request.Request(
+                "http://127.0.0.1:%d/wo/%s/events?once=1" % (SVC_PORT, wo),
+                headers={"X-Local-Ide-Token": TOKEN})
+            with OPENER.open(req_ev, timeout=20) as r:
                 first = r.read(400).decode("utf-8", "ignore")
                 sse_ok = "snapshot" in first
         except Exception as e:
@@ -226,7 +228,7 @@ def main(argv=None) -> int:
         deadline = time.time() + 420
         snap = {}
         while time.time() < deadline:
-            _, snap = http("http://127.0.0.1:%d/wo/%s" % (SVC_PORT, wo), timeout=30)
+            _, snap = http("http://127.0.0.1:%d/wo/%s" % (SVC_PORT, wo), timeout=30, token=TOKEN)
             st = snap.get("status") if isinstance(snap, dict) else None
             if st in ("awaiting_confirm", "done", "escalated", "failed", "needs_input",
                       "security_abort", "cancelled"):
@@ -283,7 +285,7 @@ def main(argv=None) -> int:
             deadline = time.time() + 420
             st2 = None
             while time.time() < deadline:
-                _, s2 = http("http://127.0.0.1:%d/wo/%s" % (SVC_PORT, wo2), timeout=30)
+                _, s2 = http("http://127.0.0.1:%d/wo/%s" % (SVC_PORT, wo2), timeout=30, token=TOKEN)
                 st2 = (s2 or {}).get("status")
                 if st2 in ("awaiting_confirm", "failed", "escalated", "done", "needs_input",
                            "security_abort", "cancelled"):

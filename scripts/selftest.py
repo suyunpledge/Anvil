@@ -29,7 +29,11 @@ SUITES = [
     ("工单服务单测", ["service/tests/test_service.py"]),
     ("安全回归（审查 7 条）", ["service/tests/test_security_fixes.py"]),
     ("自查修复（0929 审查）", ["service/tests/test_review_fixes.py"]),
+    ("读口鉴权（0930 补齐）", ["service/tests/test_read_auth_2026_09_30.py"]),
 ]
+
+# 端到端 + 并发取消验证（需要起服务，不算\"单元\"，单独跑）
+# 它们被 scripts/e2e_check.py / service/tests/cancel_concurrency.py 独立处理
 
 CORE_SUITES = [
     ("核心·状态机", ["core/statemachine/test_statemachine.py"]),

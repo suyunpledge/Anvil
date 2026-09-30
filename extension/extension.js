@@ -63,13 +63,17 @@ function request(url, { method = 'GET', body = null, timeout = 600000 } = {}) {
   });
 }
 
-// SSE：逐块解析 `data:` 行
+// SSE：逐块解析 `data:` 行（★ 2026-09-30：读口鉴权后，SSE 也必须带令牌，
+//   否则面板实时事件会全部 401）
 function openEvents(url, onEvent, onEnd) {
   const u = new URL(url);
   const mod = u.protocol === 'https:' ? https : http;
+  const headers = { Accept: 'text/event-stream' };
+  const t = loadToken();
+  if (t) headers['X-Local-Ide-Token'] = t;
   const req = mod.request(
     { hostname: u.hostname, port: u.port, path: u.pathname + (u.search || ''), method: 'GET',
-      headers: { Accept: 'text/event-stream' } },
+      headers },
     (res) => {
       let buf = '';
       res.setEncoding('utf8');
@@ -415,6 +419,7 @@ const Commands = {
   async check() {
     const { gateway, service } = cfg();
     const lines = [];
+    // /health 是唯一免鉴权端点；两个服务都查它
     for (const [name, url] of [['网关', `${gateway}/health`], ['工单服务', `${service}/health`]]) {
       try {
         const r = await request(url, { timeout: 15000 });

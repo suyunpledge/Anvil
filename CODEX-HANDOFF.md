@@ -106,6 +106,39 @@ code 工单走「暂存区 → 三个 gate → 人确认 → 原子替换」，t
    （`core/compatibility/test_qwen_coder_adapter.py::test_repair_never_invents_characters`），
    该测试**通过**，说明修复层不会引入原输入之外的字符。**保持那条测试。**
 
+5. **本轮（0930）新增：读口也必须鉴权。**
+   之前只鉴权写口，读口（/wo 列表、/wo/{id}、/events、/staged、/presets）放空。
+   2026-09-30 全数补齐：除 /health 外所有路由都走 `require_auth(token, what="查询接口")`。
+   /staged 同时不再回绝对路径，只回 filename，避免路径泄漏。
+   回归：service/tests/test_read_auth_2026_09_30.py（12 例）。**别再让"读口不鉴权"复活。**
+
+6. **本轮（0930）新增：进程级令牌。**
+   build_app 内部原本每次调用都生成新 token 并覆盖 .runtime/service-token。
+   uvicorn 调度下被调两次 → 两次令牌都不同 → 先读到旧令牌的一方全部 401。
+   修法：令牌提到模块级 `_TOKEN = _resolve_token()`，build_app 内只读不写。
+   **环境变量错位**（顺手修了）：auth.env_token 之前只认 LOCAL_LLM_TOKEN，但 e2e 传的是
+   LOCAL_IDE_TOKEN；现在两个都认，LOCAL_IDE_TOKEN 优先。
+
+7. **本轮（0930）新增：cancel 一个停在 needs_input / awaiting_confirm / escalated 的单必须真的转 cancelled。**
+   之前 cancel 只设标志，线程已退出时状态纹丝不动——用户点"取消"看不到任何反馈。
+   修法：runner.cancel() 增加终态分支，STATUS_NEEDS_INPUT_LIKE 在线程已退出时直接改判 cancelled。
+   回归：cancel_concurrency.py 用例 1 由 FAIL 变 PASS。
+
+8. **本轮（0930）新增：首批基准数字（micro_bench.py）。**
+   同一道题（实现 average(nums)）在三个模型上各跑一次：
+     · gemma4:e4b            PASS  29.4s  gates o/o/o  ← 当前编辑主力的最稳选择
+     · qwen2.5-coder:7b      FAIL  15.5s  needs_input（补丁写成了正文文本）
+     · mythos-v2-8b:q4_k_m   FAIL   0.6s  疑瞬态（显存切换/模型名解析）；单独复测 needs_input 正常
+   **n=1 不作结论。**正式基准需 20 题 × best-of-5（带重试与方差统计），写到：
+     scripts/micro_bench.py  ← 复用本次结构
+     micro_bench_result.json ← 已含 notes 段
+   建议从 gemma4:e4b 开始做编辑主力，再扩到 mythos（需补 best-of-5 与 needs_input 的自动回复路径）。
+
+9. **本轮（0930）踩坑（务必读到）：.gitignore 行内中文注释会让规则被解析跳过。**
+   `core/compatibility/node_profiles.json  # 运行时累加；脚本 pack.py --strict 不算入漂移`
+   这条规则**不会被 Git 识别**。把注释挪到独立一行就生效。
+   **规律**：行内 `规则 # 注释` 的写法在 UTF-8 中文 + LF 文件里不可靠，要么注释独立成行，要么干脆别写注释。
+
 5. **`semantic_tidy` 的阈值（0.62）是按 bge-m3 定的。** 换嵌入模型必须重标定。
 
 6. **`context/builder.py` 的符号猜测是启发式的**（先从任务描述找标识符，否则取第一个未实现函数）。
@@ -125,7 +158,44 @@ code 工单走「暂存区 → 三个 gate → 人确认 → 原子替换」，t
 
 ---
 
-## 五、验证方式（改完代码请跑这几条）
+## 4.4 本轮（0930）自查新增——读口鉴权 / 进程级令牌 / cancel 语义 / 首批基准
+
+5. **读口也必须鉴权（不要让"读口不鉴权"复活）。**
+   之前只鉴权写口，读口（/wo 列表、/wo/{id}、/events、/staged、/presets）放空。
+   2026-09-30 全数补齐：除 /health 外所有路由都走 `require_auth(token, what="查询接口")`。
+   /staged 同时不再回绝对路径，只回 filename，避免路径泄漏。
+   回归：`service/tests/test_read_auth_2026_09_30.py`（12 例）。
+
+6. **进程级令牌（build_app 不能多次写令牌）。**
+   原实现每次 build_app 都重新生成 token 并写 .runtime/service-token。uvicorn 调度下
+   build_app 被调两次 → 两次令牌都不同 → 先读到旧令牌的一方全部 401（实测 e2e 与
+   cancel_concurrency 全军覆没就是这个原因）。
+   修法：令牌提到模块级 `_TOKEN = _resolve_token()`，build_app 内只读不写。
+   **附带修了环境变量错位**：auth.env_token 之前只认 LOCAL_LLM_TOKEN，但 e2e 传的是
+   LOCAL_IDE_TOKEN；现在两个都认，LOCAL_IDE_TOKEN 优先。
+
+7. **cancel 一个停在 needs_input / awaiting_confirm / escalated 的单必须真的转 cancelled。**
+   之前 cancel 只设标志，线程已退出时状态纹丝不动——用户点"取消"看不到任何反馈。
+   修法：runner.cancel() 增加终态分支，STATUS_NEEDS_INPUT_LIKE 在线程已退出时直接改判
+   cancelled。回归：cancel_concurrency.py 用例 1 由 FAIL 变 PASS。
+
+8. **首批基准数字（scripts/micro_bench.py）。**
+   同一道题（实现 average(nums)）在三个模型上各跑一次：
+     · gemma4:e4b            PASS  29.4s  gates o/o/o  ← 当前编辑主力的最稳选择
+     · qwen2.5-coder:7b      FAIL  15.5s  needs_input（补丁写成了正文文本）
+     · mythos-v2-8b:q4_k_m   FAIL   0.6s  疑瞬态（显存切换/模型名解析）；单独复测 needs_input 正常
+   **n=1 不作结论。**正式基准需 20 题 × best-of-5（带重试与方差统计）。
+   `micro_bench_result.json` 已含 notes 段。建议从 gemma4:e4b 开始做编辑主力，
+   再扩到 mythos（需补 best-of-5 与 needs_input 的自动回复路径）。
+
+9. **本轮（0930）踩坑（务必读到）：.gitignore 行内中文注释会让规则被解析跳过。**
+   写法 `core/compatibility/node_profiles.json  # 运行时累加` 这条规则不会被 Git 识别。
+   把注释挪到独立一行就生效。**规律**：行内 `规则 # 注释` 的写法在 UTF-8 中文 + LF 文件
+   里不可靠，要么注释独立成行，要么干脆别写注释。本轮 node_profiles.json 误提交是这条坑的
+   副产品——已经 `git rm --cached` 剔除，工作目录里的副本保留供运行时写。
+   提交前再 `git grep node_profiles` 确认仓库干净。
+
+五、验证方式（改完代码请跑这几条）
 
 ```bash
 # 1) 单元层（不调模型，约 10 秒）

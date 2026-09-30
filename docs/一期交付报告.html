@@ -108,6 +108,7 @@ svg{display:block;width:100%;height:auto}
     <li><a href="#s2"><span class="n">02</span>项目结构</a></li>
     <li><a href="#s3"><span class="n">03</span>端到端验收</a></li>
     <li><a href="#s3b"><span class="n">03b</span>外部审查后的安全加固</a></li>
+    <li><a href="#s3c"><span class="n">03c</span>本轮读口鉴权 + cancel 语义（0930）</a></li>
     <li><a href="#s4"><span class="n">04</span>本轮修掉的 5 个缺陷</a></li>
     <li><a href="#s5"><span class="n">05</span>如实列出：仍存在的问题</a></li>
     <li><a href="#s6"><span class="n">06</span>为 Codex 修正做的准备</a></li>
@@ -318,6 +319,28 @@ svg{display:block;width:100%;height:auto}
     <p>所以它被列为仍待解决项的第 1 优先级（见下一节的待办清单）。真隔离需要 OS 级手段（Windows：Job Object + 受限令牌；Linux：bwrap/unshare），本机当前不具备。</p>
   </div>
 </section>
+
+<section id="s3c">
+<div class="hd"><span class="idx">03c</span><h2>本轮读口鉴权 + cancel 语义（0930）</h2></div>
+<p class="lead">2026-09-30 第二次自查并补充：读口也必须鉴权（不只是写口）、令牌在进程内只算一次（避免 build_app 被调两次时令牌错位导致 401）、cancel 一个停在 needs_input / awaiting_confirm 的单要真正把状态改成 cancelled（不再"按了没反应"）。</p>
+<table>
+<caption>本轮修复（0930）</caption>
+<thead><tr><th>#</th><th>问题</th><th>修复</th><th>回归</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>/wo 列表、/wo/{id}、/events、/staged 是"读口不鉴权"，/presets 会暴露本机装了哪些模型</td><td>除 /health 外全部走 require_auth(token, what="查询接口") 依赖；/staged 不再返回绝对路径只回 filename</td><td>新增 service/tests/test_read_auth_2026_09_30.py，12 例全过</td></tr>
+<tr><td>2</td><td>build_app 内部 _write_token_file，每次调用都生成新 token——uvicorn 调度下被调两次，先读到旧令牌的一方全部 401</td><td>令牌提到模块级（_TOKEN = _resolve_token()），build_app 内只读不写</td><td>e2e_check 16/16、cancel_concurrency 6/6</td></tr>
+<tr><td>3</td><td>cancel 一个停在 needs_input / awaiting_confirm 的工单，状态纹丝不动——用户点"取消"看不到任何反馈</td><td>runner.cancel() 增加终态分支：若线程已退出且状态在 STATUS_NEEDS_INPUT_LIKE（needs_input/escalated/awaiting_confirm），直接改为 cancelled 并 emit status</td><td>cancel_concurrency 用例 1 "awaiting_confirm 时 cancel → cancelled" 由 FAIL 变 PASS</td></tr>
+<tr><td>4</td><td>环境变量错位：service/auth.py 读 LOCAL_LLM_TOKEN，但 e2e 传的是 LOCAL_IDE_TOKEN</td><td>env_token() 两个变量名都认，LOCAL_IDE_TOKEN 优先</td><td>e2e_check 无令牌建单返 401（之前是 401+令牌错位带令牌也被拒）</td></tr>
+<tr><td>5</td><td>扩展 SSE（openEvents）不带令牌 → 面板实时事件全 401 断流</td><td>openEvents 读取并加上 X-Local-Ide-Token 头</td><td>e2e_check "SSE 通道可用"仍 PASS</td></tr>
+<tr><td>6</td><td>e2e_check 快照轮询 GET /wo/{id} 不带令牌 → 死循环到超时</td><td>e2e_check 的 http() 调用全部补 token</td><td>e2e_check 16/16 全过</td></tr>
+<tr><td>7</td><td>scripts/cancel_concurrency.py 8090 被旧服务占着时静默连到旧服务、令牌错位全部 401</td><td>main() 启动前用 socket.connect_ex 探测 8090，被占时立即报错并打印 kill 命令</td><td>本轮不会出现静默失败</td></tr>
+<tr><td>8</td><td>core/compatibility/node_profiles.json 被错提交到仓库（运行时累加数据）</td><td>git rm --cached + .gitignore 加规则（注释挪到独立一行；行内中文注释会让 Git 解析跳过规则——本轮踩坑）</td><td>git ls-files 已无此文件；workdir 仍保留供运行时写</td></tr>
+<tr><td>9</td><td>scripts/micro_bench.py 首批基准数字：gemma4:e4b 29.4s 全绿；qwen2.5-coder:7b 写补丁写到正文（needs_input）；mythos 0.6s 失败疑为瞬态</td><td>见 micro_bench_result.json 的 notes 段</td><td>方向参考用，n=1 不作结论；正式基准需 20 题 × best-of-5（CODEX-HANDOFF §七-2）</td></tr>
+</tbody>
+</table>
+<p class="lead">最终对照基线（0930 完结版）：<strong>单元 12/12 + 端到端 16/16 + 离线套件 11/11 = 33/33 全绿</strong>。GitHub HEAD = 即将推送的提交号，仓库 suyunpledge/Anvil。</p>
+</section>
+
 
 <section id="s4">
   <div class="sec-head"><span class="idx">04</span><h2>本轮修掉的 5 个缺陷（附根因）</h2></div>

@@ -23,3 +23,8 @@ node_modules/
 .DS_Store
 Thumbs.db
 desktop.ini
+# runtime drift (see pack.py --strict)
+core/compatibility/node_profiles.json
+
+micro_bench_result.json
+.runtime/micro_bench.log

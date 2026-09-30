@@ -9,16 +9,10 @@
   · **落盘必须经人确认**：工单一律先跑到"待确认"状态，`POST /wo/{id}/confirm` 才写文件；
   · 取消是协作式的：包一层适配器，在两个节点之间检查标记。
 
-接口：
-    GET  /health                   服务与核心版本
-    GET  /presets                  可用适配层 / 模型（供下拉框）
-    POST /wo                       建单并开跑
-    GET  /wo                       列出全部工单
-    GET  /wo/{id}                  单张工单快照
-    GET  /wo/{id}/events           SSE 事件流
-    POST /wo/{id}/cancel           取消
-    POST /wo/{id}/confirm          人确认后落盘
-    GET  /wo/{id}/staged           暂存内容（给 diff 视图用）
+鉴权口径（2026-09-30 补齐）：
+  · /health / /presets 仍开放（自检脚本需要零门槛）
+  · 其余读口（/wo 列表、/wo/{id}、/events、/wo/{id}/staged）与所有写口一致要求令牌
+  · 扩展侧已支持自动读取令牌文件（extension.js::loadToken），无需手动配置
 
 跑法：python service/app.py [--port 8090]
 测试：python service/tests/test_service.py
@@ -46,16 +40,17 @@ ensure_core_on_path()
 
 from runner import (RunnerOpts, RunnerRegistry, STATUS_AWAITING_CONFIRM,  # noqa: E402
                     STATUS_RUNNING, list_presets)
+from auth import env_token, require_auth, extract_token  # noqa: E402
 
 # ★ FastAPI 导入放模块顶层：见 gateway/app.py 里同一处的注释（注解字符串化的坑）
 try:
-    from fastapi import FastAPI, Request
+    from fastapi import FastAPI, Header, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse, StreamingResponse
     from pydantic import BaseModel, Field
     _FASTAPI_OK = True
 except Exception:
-    FastAPI = object                       # type: ignore
+    FastAPI = Header = HTTPException = Request = object     # type: ignore
     BaseModel = object                     # type: ignore
     JSONResponse = StreamingResponse = object   # type: ignore
     _FASTAPI_OK = False
@@ -65,6 +60,22 @@ except Exception:
 
 
 REGISTRY = RunnerRegistry()
+
+#: ★ 进程级令牌：只生成/读取一次（2026-09-30 实测坑：build_app 被调两次时
+#:   会生成两个不同令牌并两次覆盖文件，先读到旧令牌的一方全部 401）。
+#:   放在模块级，无论 build_app 被调多少次都用同一个。
+import secrets as _secrets
+
+
+def _resolve_token() -> str:
+    """进程级只算一次：环境变量优先（LOCAL_IDE_TOKEN，兼容 LOCAL_LLM_TOKEN），否则随机。"""
+    v = (os.environ.get("LOCAL_IDE_TOKEN") or "").strip()
+    if not v:
+        v = (os.environ.get("LOCAL_LLM_TOKEN") or "").strip()
+    return v or _secrets.token_urlsafe(24)
+
+
+_TOKEN = _resolve_token()
 
 
 # ============================================================
@@ -79,7 +90,7 @@ class ConfirmPolicy:
     ``LOCAL_IDE_ALLOWED_ROOTS``
         允许操作的工作目录根，多个用 ``;`` 分隔；不设则不限制。
     ``LOCAL_IDE_REQUIRE_TOKEN``
-        1（默认）= 写操作要令牌；0 = 关闭（不推荐）
+        1（默认）= 写操作要读 + 读口（除 health/presets 外）也要读；0 = 关闭（不推荐）
     """
 
     def __init__(self, force_confirm: bool, allowed_roots: List[str], require_token: bool) -> None:
@@ -113,11 +124,6 @@ class ConfirmPolicy:
                 "require_token": self.require_token}
 
 
-def _gen_token() -> str:
-    import secrets
-    return secrets.token_urlsafe(24)
-
-
 def _token_path() -> str:
     return runtime_path("service-token")
 
@@ -129,6 +135,7 @@ def _write_token_file(token: str) -> None:
     """
     try:
         p = _token_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(token)
         try:
@@ -163,45 +170,39 @@ def build_app():
     if not _FASTAPI_OK:
         raise SystemExit("未找到 fastapi；请用带 fastapi/uvicorn 的解释器运行（本机 AutoClaw 内嵌 python 自带）")
 
-    app = FastAPI(title="Local IDE Work-Order Service", version="0.3.0")
+    app = FastAPI(title="Local IDE Work-Order Service", version="0.3.1")
 
     # ------------------------------------------------------------------
-    # 安全加固（2026-09-28 外部审查 #2）
+    # 安全加固（2026-09-28 外部审查 #2 → 2026-09-30 补齐读口）
     # ------------------------------------------------------------------
-    # 原实现的问题：allow_origins=["*"] + 无认证 + require_confirm 完全由客户端决定。
-    # 后果：任何本机程序、或能访问本地网络的网页，都可以提交 require_confirm=false
-    #       让模型去改任意已知工作目录（“人工确认”这个承诺被绕过）。
-    #
-    # 三处修正：
-    #   ① CORS 收窄到本机来源（localhost / 127.0.0.1 / vscode-webview）；
-    #   ② 写操作要求令牌（启动时生成或读 LOCAL_IDE_TOKEN，写入 token 文件供扩展读）；
-    #   ③ require_confirm 由**服务端策略**决定：策略要求确认时，客户端传 false 也不生效；
-    #      并可选限定允许操作的工作目录根（LOCAL_IDE_ALLOWED_ROOTS）。
+    # CORS 收窄到 localhost / 127.0.0.1 / vscode-webview
     allow_origin_regex = os.environ.get(
         "LOCAL_IDE_CORS_REGEX", r"^(https?://(127\.0\.0\.1|localhost)(:\d+)?|vscode-webview://.*)$")
     app.add_middleware(CORSMiddleware, allow_origin_regex=allow_origin_regex,
                        allow_methods=["GET", "POST"], allow_headers=["*"],
                        allow_credentials=False)
-    token = (os.environ.get("LOCAL_IDE_TOKEN") or "").strip() or _gen_token()
+
+    # 令牌：进程级（模块加载时已定），这里只负责落盘
+    token = _TOKEN
     _write_token_file(token)
     policy = ConfirmPolicy.from_env()
 
-    def _auth(request: Request) -> Optional[JSONResponse]:
-        """写操作鉴权。读接口（health/presets）不要求令牌，便于自检。
+    # 读口鉴权依赖项（除 /health、/presets 外都套）。
+    # /health 与 /presets 仅返回状态与画像清单，不含用户内容；自检脚本
+    # 需要它们零门槛。其余读口（列表、详情、SSE、暂存）同样会泄露本机路径与
+    # 工单内文——所以 2026-09-30 补齐：不再口头豁免。
+    READ_AUTH = require_auth(token, what="查询接口")
 
-        允许两种带法：`Authorization: Bearer <token>` 或 `X-Local-Ide-Token: <token>`。
-        """
+    def _write_auth(request: Request) -> Optional[JSONResponse]:
+        """写操作鉴权同步检查（与 READ_AUTH 同口径，留着便于细粒度时点）。"""
         if not policy.require_token:
             return None
-        got = ""
         auth = request.headers.get("authorization") or ""
-        if auth.lower().startswith("bearer "):
-            got = auth[7:].strip()
-        if not got:
-            got = (request.headers.get("x-local-ide-token") or "").strip()
+        x = request.headers.get("x-local-ide-token") or ""
+        got = extract_token(auth, x)
         if got != token:
             return JSONResponse(status_code=401,
-                                content={"error": "需要令牌：在请求头带上 "
+                                content={"error": "需要令牌：请在请求头带上 "
                                                    "X-Local-Ide-Token（令牌见 .runtime/service-token）"})
         return None
 
@@ -214,15 +215,12 @@ def build_app():
                 "auth": {"token_required": policy.require_token,
                          "token_file": _token_path()}}
 
-    @app.get("/presets")
+    @app.get("/presets", dependencies=[READ_AUTH])
     def presets() -> Dict[str, Any]:
         return list_presets()
 
-    @app.post("/wo")
+    @app.post("/wo", dependencies=[READ_AUTH])
     def create(req: CreateReq, request: Request):
-        bad = _auth(request)
-        if bad is not None:
-            return bad
         opts = RunnerOpts(**req.model_dump())
         if opts.kind == "code" and not (opts.workdir and opts.target):
             return JSONResponse(status_code=400,
@@ -241,61 +239,52 @@ def build_app():
                 "require_confirm": opts.require_confirm,
                 "policy": policy.summary()}
 
-    @app.get("/wo")
+    @app.get("/wo", dependencies=[READ_AUTH])
     def list_wo() -> Dict[str, Any]:
         items = [{"wo_id": r.wo_id, "status": r.status, "kind": r.opts.kind,
                   "task": r.opts.task[:80]} for r in REGISTRY.all()]
         return {"count": len(items), "items": items}
 
-    @app.get("/wo/{wo_id}")
+    @app.get("/wo/{wo_id}", dependencies=[READ_AUTH])
     def get_wo(wo_id: str):
         r = REGISTRY.get(wo_id)
         if not r:
             return JSONResponse(status_code=404, content={"error": "工单不存在"})
         return r.snapshot()
 
-    @app.get("/wo/{wo_id}/staged")
-    def staged(wo_id: str, request: Request):
+    @app.get("/wo/{wo_id}/staged", dependencies=[READ_AUTH])
+    def staged(wo_id: str):
         """暂存内容 + diff（给 diff 视图用）。
 
         ★ 鉴权（2026-09-29 自查）：这个接口返回**文件内容与本地路径**，
           属于敏感读口，不能因为“是读接口”就豁免令牌。
+        ★ 2026-09-30 改为不返回本地绝对路径，只回文件名。
         """
-        bad = _auth(request)
-        if bad is not None:
-            return bad
         r = REGISTRY.get(wo_id)
         if not r:
             return JSONResponse(status_code=404, content={"error": "工单不存在"})
-        # 只回文件名，不回完整本地路径（减少本机信息暴露面；扩展端自己知道工作目录）
         real = str(r.result.get("real_path") or "")
         return {"wo_id": wo_id, "content": r.result.get("staged_content", ""),
                 "diff": r.result.get("diff", ""),
                 "filename": os.path.basename(real) if real else "",
                 "status": r.status}
 
-    @app.post("/wo/{wo_id}/cancel")
-    def cancel(wo_id: str, request: Request):
-        bad = _auth(request)
-        if bad is not None:
-            return bad
+    @app.post("/wo/{wo_id}/cancel", dependencies=[READ_AUTH])
+    def cancel(wo_id: str):
         r = REGISTRY.get(wo_id)
         if not r:
             return JSONResponse(status_code=404, content={"error": "工单不存在"})
         return {"ok": r.cancel(), "status": r.status}
 
-    @app.post("/wo/{wo_id}/confirm")
-    def confirm(wo_id: str, request: Request):
-        bad = _auth(request)
-        if bad is not None:
-            return bad
+    @app.post("/wo/{wo_id}/confirm", dependencies=[READ_AUTH])
+    def confirm(wo_id: str):
         r = REGISTRY.get(wo_id)
         if not r:
             return JSONResponse(status_code=404, content={"error": "工单不存在"})
         res = r.confirm()
         return JSONResponse(status_code=(200 if res.get("ok") else 409), content=res)
 
-    @app.get("/wo/{wo_id}/events")
+    @app.get("/wo/{wo_id}/events", dependencies=[READ_AUTH])
     def events(wo_id: str, once: int = 0) -> Any:
         """SSE 事件流。`?once=1` 时只回一次快照（便于脚本化测试）。"""
         r = REGISTRY.get(wo_id)

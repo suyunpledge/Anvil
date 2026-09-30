@@ -49,6 +49,11 @@ STATUS_AWAITING_CONFIRM = "awaiting_confirm"
 STATUS_CANCELLED = "cancelled"
 STATUS_FAILED = "failed"
 
+#: 终态/停等态：取消这些单的含义是"用户放弃这单"，状态应转 cancelled。
+#: 依据（2026-09-30 实测）：模型反问 needs_input 后用户点"取消"，状态纹丝不动，
+#: 面板上永远挂着一条 needs_input——用户看不到自己的操作产生了任何效果。
+STATUS_NEEDS_INPUT_LIKE = ("needs_input", "escalated", "awaiting_confirm")
+
 #: 常见整理目录的语义描述（与 CLI 的 _DEFAULT_HINTS 保持同一口径）
 _DEFAULT_HINTS: Dict[str, str] = {
     "文档": "合同、报告、说明书、笔记、会议纪要等文字性文档",
@@ -202,7 +207,18 @@ class WorkOrderRunner:
         return self.wo_id
 
     def cancel(self) -> bool:
+        """取消。对**已终态但未确认**的单（如 needs_input：模型在反问、等用户答复），
+        取消的含义是"用户放弃这单"，状态应转为 cancelled——否则面板上它会永远
+        停在 needs_input，用户点丢弃却看不到任何变化（2026-09-30 实测暴露）。
+        """
         self._cancel.set()
+        # 已终态且不再运行：直接改判 cancelled（线程已退出，不会再来改它）
+        if (not self.alive and self.status in (STATUS_NEEDS_INPUT_LIKE)
+                and self.status != STATUS_AWAITING_CONFIRM):
+            with self._lock:
+                self.status = "cancelled"
+            self.emit("status", status="cancelled", reason="用户放弃")
+            return True
         self.emit("status", status="cancelling")
         return True
 
