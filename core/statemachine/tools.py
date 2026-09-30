@@ -208,13 +208,9 @@ def list_dir(ctx: ToolContext, path: str = ".", depth: int = 1) -> Dict[str, Any
 # `engine="auto"` 按候选文件规模切（阈值 5000，估数成本低）。
 # 不把 rg 当默认，是因为真正的默认应该是「本机实测更快的那一个」。
 _RG_AUTO_THRESHOLD = 5000
-# rg 候选：优先 PATH；再试 Tuanjie Cowork 的内置二进制（按环境变量拼路径，
-# 不把用户名/本机布局硬编码进代码）。都找不到就退回 Python 实现。
-_LOCAL_APPDATA = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
 _RG_CANDIDATES = (
     "rg", "rg.exe",
-    os.path.join(_LOCAL_APPDATA, "Programs", "Tuanjie Cowork", "app", "resource",
-                 "core", "bin", "win32-x64", "rg.exe"),
+    r"C:\Users\匡溯昀\AppData\Local\Programs\Tuanjie Cowork\app\resource\core\bin\win32-x64\rg.exe",
 )
 _RG_CACHE: Dict[str, Optional[str]] = {"path": None, "probed": False}  # type: ignore
 
@@ -375,7 +371,27 @@ def apply_patch(ctx: ToolContext, path: str = "", old_string: Optional[str] = No
 
     A) 文本替换：``old_string`` → ``new_string``（必须在文件中唯一匹配）；
     B) 行区间替换：``start_line``..``end_line``（1-based，含端点）→ ``new_code``。
+
+    ★ 兼容嵌套形态（2026-09-30 实测坑，glm4 补做画像时暴露）：有的模型（glm4:9b、
+    部分 few-shot 格式）会把补丁参数包成 ``patch: {old_string, new_string}`` 嵌套对象
+    而不是扁平参数——以前这种调用掉进 ``**extra`` 被静默忽略，报「补丁参数不足」
+    但真实原因是参数结构不解包。现在统一在入口处展开。
     """
+    # 嵌套 patch 对象解包：patch={"old_string":..., "new_string":...} → 扁平
+    # （2026-09-30 实测坑，glm4 补做画像时暴露：嵌套调用以前掉进 **extra 被静默忽略）
+    _nested = extra.get("patch")
+    if isinstance(_nested, dict):
+        if old_string is None and _nested.get("old_string") is not None:
+            old_string = _nested["old_string"]
+        if new_string is None and _nested.get("new_string") is not None:
+            new_string = _nested["new_string"]
+        if start_line is None and _nested.get("start_line") is not None:
+            start_line = _nested["start_line"]
+        if end_line is None and _nested.get("end_line") is not None:
+            end_line = _nested["end_line"]
+        if new_code is None and _nested.get("new_code") is not None:
+            new_code = _nested["new_code"]
+
     p = ctx.resolve(path or ctx.target, for_write=True)
     # ★ 乐观并发（借自 chat-ollama）：先比版本，再动手。
     assert_expected_version(p, expected_version)

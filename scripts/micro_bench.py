@@ -102,6 +102,19 @@ def pre_commit_sha(path):
     return h.hexdigest()
 
 
+def pick_adapter(model: str) -> str:
+    """按模型名选画像 key：正文通道模型必须用自己的画像，否则 hint/extract 全丢。
+    （2026-09-30 实测坑：glm4:9b 写死 mythos 画像 → hint 没进提示 → edit 输出一团糟。）"""
+    import sys, os
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for _p in (os.path.join(_root, 'core'), os.path.join(_root, 'core', 'compatibility')):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+    from mythos_core.profiles import PROFILE_BY_MODEL, load_generated_profiles
+    load_generated_profiles()
+    return PROFILE_BY_MODEL.get(model, 'mythos')
+
+
 def run_one(model, token, log):
     wd = tempfile.mkdtemp(prefix="bench-")
     log.write("model: %s | workdir: %s\n" % (model, os.path.basename(wd)))
@@ -114,7 +127,7 @@ def run_one(model, token, log):
         "kind": "code",
         "task": "在 calc.py 中实现 average(nums)：返回整数列表的平均值，空列表返回 0.0。把 average 现有的函数体替换掉（不要留下旧代码），确保 test_calc.py 全部通过。",
         "workdir": wd, "target": "calc.py", "test_path": "test_calc.py",
-        "adapter": "mythos", "model": model, "require_confirm": True,
+        "adapter": pick_adapter(model), "model": model, "require_confirm": True,
     }, token=token)
     if code != 200:
         log.write("  -> 建单失败 code=%s body=%s\n" % (code, body))

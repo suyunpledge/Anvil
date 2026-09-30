@@ -209,6 +209,21 @@ code 工单走「暂存区 → 三个 gate → 人确认 → 原子替换」，t
    **三轮 12 模型总排序：ministral-3:8b ≈ qwen3.5:9b ≈ gemma4:e4b > mythos-latest（慢但真）> qwen3:8b > 其余。**
    **测试命令注意：模型名必须传 Ollama 全名**（fableforge-ai/mythos-v2-8b:latest 而非 mythos-v2-8b:latest），短名 Ollama 报 not found。
 
+   **第四轮（0930 深夜续，glm4:9b 平反——用户情报触发）：**
+   用户指出 GLM-4-9B 原生支持工具调用、ollama 模板没打包好。实测验证属实，根因三层：
+     1. **think 400**：glm4 不认 think 键 → 补画像 sends_think=False（网关摘键）。
+     2. **零样本不发起调用**：ChatGLM 模板只做输入侧注入，模型把"无法访问"写成正文；
+        加 few-shot 格式示范后能稳定输出裸 JSON {"name":...,"arguments":{...}}。
+     3. **嵌套 patch 掉进 **extra**：glm4 输出 patch:{old_string,new_string} 嵌套对象，
+        apply_patch 旧签名只认扁平参数 → PatchError"补丁参数不足" → 补丁静默失败两轮 → escalated。
+        **已在 tools.py::apply_patch 入口统一解包**（对全部模型生效）。
+   修后结果：**glm4:9b PASS 5.4s o/o/o（两次复测稳定）——全库最快**。
+   新增：GLM4 画像（core/compatibility/mythos_core/profiles.py，双侧同步）+
+   micro_bench.py::pick_adapter 按模型名路由画像（之前写死 mythos，
+   这也是第二轮 gemma4/ministral/qwen3.5 "蒙对"的原因——它们行为恰与 mythos 画像兼容）。
+   教训：**"模型不行"的结论要区分"模型能力"与"适配层没接对"**——9/28 体检判 glm4
+   "不会调工具"，实为模板 + 适配层三层问题的叠加。
+
 9. **本轮（0930）踩坑（务必读到）：.gitignore 行内中文注释会让规则被解析跳过。**
    写法 `core/compatibility/node_profiles.json  # 运行时累加` 这条规则不会被 Git 识别。
    把注释挪到独立一行就生效。**规律**：行内 `规则 # 注释` 的写法在 UTF-8 中文 + LF 文件

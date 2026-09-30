@@ -129,6 +129,49 @@ PROFILE_BY_MODEL: Dict[str, str] = {p.model: p.key for p in (MYTHOS, QWEN_CODER)
 
 
 # ============================================================
+# GLM4-9B —— 2026-09-30 补做的正文通道画像
+#   依据（2026-09-30 23:45 实测，glm4_fewshot_test.py）：
+#   · 官方模板注入了工具说明，但零样本时模型把“无法访问”写成正文，不发起调用；
+#   · 加一条 few-shot 示范后，模型能稳定输出 ChatGLM 官方格式的裸 JSON
+#     {"name": ..., "arguments": {...}}（不带 <tool_call> 包裹）；
+#   · mythos_core.extract.extract_tool_calls_from_content 对裸 JSON 与
+#     <tool_call> 包裹两种格式都能提取（test_extract_glm4.py 验证）；
+#   · think 键发给它直接 400 does not support thinking（第三轮 bench 实测）。
+#   结论：模型能力够，走「正文抠调用」通道（同 qwen2.5-coder），
+#   提示里必须带格式示范。
+# ============================================================
+GLM4 = ModelProfile(
+    key="glm4",
+    label="GLM4-9B-Chat",
+    model="glm4:9b",
+    toolsets=dict(TOOLSETS),
+    think_policy={k: False for k in THINK_POLICY},  # 不支持 think，全部关掉
+    ctx_policy=dict(CTX_POLICY),
+    ctx_default=CTX_DEFAULT,
+    ctx_max=131072,        # GLM-4-9B-Chat 标称 128K
+    ctx_interactive_max=CTX_INTERACTIVE_MAX,
+    temp_ladder=list(TEMP_LADDER),
+    sends_think=False,        # ★ think 键发给它直接 400
+    extract_from_content=True,  # ★ 调用写正文里，必须自己抠
+    edit_prompt_hint=(
+        "★ 本机模型特别说明（依据实测）：需要调用工具时，在回复正文里输出这样的 JSON：\n"
+        '{"name": "工具名", "arguments": {"参数名": "值"}}\n'
+        "调用 apply_patch 改代码的完整示例（old_string 按原文替换）：\n"
+        '{"name": "apply_patch", "arguments": {"path": "calc.py", '
+        '"patch": {"old_string": "    raise NotImplementedError", '
+        '"new_string": "    if not nums:\n      return 0.0\n    return sum(nums) / len(nums)"}}}\n'
+        "★ 只输出这一个 JSON，不要输出其它任何文字、不要把工具说明抄进回复。"),
+    notes="ChatGLM 模板只做了输入侧工具注入，零样本不发起调用；"
+          "few-shot 后能稳定输出裸 JSON（extract 可抠）；不支持 thinking。",
+    evidence=("2026-09-30 glm4_fewshot_test.py：零样本不调，few-shot 后输出正确裸 JSON",
+              "2026-09-30 test_extract_glm4.py：裸 JSON 与 <tool_call> 包裹均可提取",
+              "第三轮 bench：think 键 → HTTP 400 does not support thinking"),
+)
+ALL_PROFILES[GLM4.key] = GLM4
+PROFILE_BY_MODEL[GLM4.model] = GLM4.key
+
+
+# ============================================================
 # 体检合格的本地模型（2026-09-28 全量行为体检后并入）
 # ============================================================
 # 本机 14 个模型声明支持 tools，逐个实测后：
