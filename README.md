@@ -129,6 +129,7 @@ the token is in `.runtime/service-token` (generated at startup).
 
 Two more security items are verified end to end as well: **creating an order without a token is rejected (401)**, and **confirmation is rejected if the file changed mid-run (409)**.
 See `docs/验收清单.md` (acceptance checklist).
+Model benchmark logs across four rounds: `docs/模型测验全记录.md`.
 
 ---
 
@@ -160,3 +161,4 @@ Pick by measurement (data from this machine):
 `CODEX-HANDOFF.md` was written specifically for "the next person, using Codex, to make fixes":
 what was done, what was not, where the known defects are, how to verify, and what not to touch.
 `docs/验收清单.md` is the item-by-item acceptance criteria.
+Four rounds of model benchmark notes (incl. the glm4 rehabilitation): `docs/模型测验全记录.md`.

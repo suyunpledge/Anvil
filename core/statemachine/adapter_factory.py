@@ -26,6 +26,7 @@ for _p in (_HERE, _COMPAT):
 ADAPTERS = {
     "mythos": ("mythos", None),
     "qwen-coder": ("qwen-coder", "qwen2.5-coder:7b"),
+    "glm4": ("glm4", "glm4:9b"),
 }
 
 

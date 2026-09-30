@@ -40,6 +40,7 @@ CORE_SUITES = [
     ("核心·文件整理", ["core/statemachine/test_tidy.py"]),
     ("核心·Mythos 适配层", ["core/compatibility/test_mythos_adapter.py"]),
     ("核心·Qwen2.5-Coder 适配层", ["core/compatibility/test_qwen_coder_adapter.py"]),
+    ("核心·GLM4 适配层", ["core/compatibility/test_glm4_adapter.py"]),
 ]
 
 
