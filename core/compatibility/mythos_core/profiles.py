@@ -108,12 +108,7 @@ QWEN_CODER = ModelProfile(
     recon_max_turns=1,
     edit_max_turns=2,
     # 它不会「行号心算」（无 thinking）：把锚点从行号拨回文本，这是实测里唯一稳的写法。
-    edit_prompt_hint=(
-        "★ 本机模型特别说明（依据实测）：你在行号计算上很容易出错。\n"
-        "优先用 old_string + new_string 这种「按原文替换」的写法——把要改的那一段"
-        "**原样**拄进 old_string（含缩进），把新内容放进 new_string。\n"
-        "只有确实无法用文本锁定时才用行号，且行号必须从上面给的源文件内容里数。\n"
-        "不要动目标函数以外的任何一行。"),
+    edit_prompt_hint=('★ 本机模型特别说明（依据实测）：你曾连续多轮把「def 行」多加缩进导致语法错误，\n且你在行号计算上不可靠——**禁止使用行号模式**（不要用 start_line/end_line）。\n必须用 old_string + new_string 的按原文替换写法：把要改的那一段逐字原样抄进 old_string（含缩进），\n把替换后的新内容放进 new_string（新内容按它在文件里的正确缩进写，顶格的 def 不要缩进）。\n示例：\n{"name": "apply_patch", "arguments": {"path": "calc.py", "old_string": "    raise NotImplementedError(\\"待实现\\")", "new_string": "    if not nums:\\n        return 0.0\\n    return sum(nums) / len(nums)"}}\n不要动目标函数以外的任何一行。'),
     notes="不走原生 tool_calls 通道，把调用写成正文裸 JSON；不支持 thinking；"
           "参数写法比 qwen3 系更贴近「只给需要改的那一段」。",
     evidence=("S1 带 tools 时仍返回 content 里的 {\"name\":...,\"arguments\":{...}}",
@@ -169,6 +164,33 @@ GLM4 = ModelProfile(
 )
 ALL_PROFILES[GLM4.key] = GLM4
 PROFILE_BY_MODEL[GLM4.model] = GLM4.key
+
+
+# ============================================================
+# DeepSeek-R1-7B（distill）—— 2026-10-01 复审补做
+#   实测问题：edit 输出 ```fix / ```diff 文本而非工具调用 → extract [] → needs_input。
+#   方案：正文通道 + 明确「禁止 diff，直接输出 JSON」的示范。
+# ============================================================
+DEEPSEEK_R1 = ModelProfile(
+    key="deepseek-r1",
+    label="DeepSeek-R1-7B",
+    model="deepseek-r1:7b",
+    toolsets=dict(TOOLSETS),
+    think_policy={k: False for k in THINK_POLICY},
+    ctx_policy=dict(CTX_POLICY),
+    ctx_default=CTX_DEFAULT,
+    ctx_max=65536,
+    ctx_interactive_max=CTX_INTERACTIVE_MAX,
+    temp_ladder=list(TEMP_LADDER),
+    sends_think=False,
+    extract_from_content=True,
+    edit_prompt_hint='★ 本机模型特别说明（依据实测）：你习惯把补丁写成 \\"\\"\\"diff 或 markdown 代码块文本——**禁止**。\n必须直接输出一行 JSON 工具调用（不要任何包裹、不要 diff）：\n{"name": "apply_patch", "arguments": {"path": "calc.py", "old_string": "    raise NotImplementedError(\\"待实现\\")", "new_string": "    if not nums:\\n        return 0.0\\n    return sum(nums) / len(nums)"}}\n用 old_string + new_string 做最小替换；顶格的 def 不要缩进；不要动目标函数以外任何一行。',
+    notes="正文通道；输出习惯是 markdown diff 文本，靠 hint 掰到裸 JSON（复审中）。",
+    evidence=("2026-10-01 复审：输出 ```fix/```diff 未被提取 → needs_input",),
+)
+ALL_PROFILES[DEEPSEEK_R1.key] = DEEPSEEK_R1
+PROFILE_BY_MODEL[DEEPSEEK_R1.model] = DEEPSEEK_R1.key
+
 
 
 # ============================================================

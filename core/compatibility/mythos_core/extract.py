@@ -90,6 +90,40 @@ def _fix_unescaped_quotes(s: str) -> str:
     return "".join(out)
 
 
+def _complete_missing_closers(text: str) -> Optional[str]:
+    """LLM 输出常在结尾漏掉右花括号（生成被截断/写快了）：按「字符串外」计数补齐。
+
+    2026-10-01 实测坑（qwen2.5-coder 复审暴露）：模型输出
+    {..."new_code": "...\n"} —— 2 个开括号只配了 1 个闭括号，
+    配平扫描与 repair 全线放弃 → 被判 no_call。这一步是最后手段：
+    只补「缺的」闭括号（多了不补、不缺不动），补完能解析就用，不能就照旧失败。
+    """
+    if not text or not isinstance(text, str):
+        return None
+    opens = closes = 0
+    in_str = False
+    esc = False
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            opens += 1
+        elif ch == "}":
+            closes += 1
+    missing = opens - closes
+    if missing <= 0:
+        return None
+    return text + ("}" * missing)
+
+
 def repair_json_text(text: str) -> Optional[Any]:
     """尽力把一个「大概是 JSON」的文本解成对象；不行就返回 None（不猜）。
 
@@ -102,6 +136,11 @@ def repair_json_text(text: str) -> Optional[Any]:
     no_trailing_comma = re.sub(r",(\s*[}\]])", r"\1", s)
     tries = [s, no_trailing_comma, _fix_unescaped_quotes(s),
              _fix_unescaped_quotes(no_trailing_comma)]
+    # 2026-10-01（qwen2.5-coder 复审）：缺右括号的截断输出——最后手段补一补再试
+    for _base in (s, _fix_unescaped_quotes(s)):
+        _comp = _complete_missing_closers(_base)
+        if _comp:
+            tries.append(_comp)
     for cand in tries:
         try:
             return json.loads(cand)

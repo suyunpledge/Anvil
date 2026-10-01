@@ -424,6 +424,18 @@ class MythosAdapter:
             thinking = m.get("thinking") or ""
             calls = m.get("tool_calls") or []
 
+            # ★ 调试开关（2026-10-01）：LOCAL_IDE_DUMP_RAW=<文件路径> 时把原始响应落盘，
+            #   用于排障「正文抠调用失败」类问题（平时不设=零开销）。
+            _dump = os.environ.get("LOCAL_IDE_DUMP_RAW")
+            if _dump:
+                try:
+                    with open(_dump, "a", encoding="utf-8") as _f:
+                        _f.write(json.dumps({"model": self.model, "node": node,
+                                             "content": content, "thinking": thinking,
+                                             "native_calls": calls}, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+
             # ★ 正文抠调用：少数模型（实测 qwen2.5-coder:7b）不走原生 tool_calls 通道，
             #   而是把调用写成正文里的一段裸 JSON。这里把它译成同一形状，
             #   后面的授权/归一/安全闸一个字都不用改。
