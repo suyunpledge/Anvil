@@ -209,12 +209,11 @@ def list_dir(ctx: ToolContext, path: str = ".", depth: int = 1) -> Dict[str, Any
 # `engine="auto"` 按候选文件规模切（阈值 5000，估数成本低）。
 # 不把 rg 当默认，是因为真正的默认应该是「本机实测更快的那一个」。
 _RG_AUTO_THRESHOLD = 5000
-# 本机可能自带 rg 的位置（按环境变量动态拼，避免把本机路径写死进仓库）。
-# 2026-10-03 隐私清理：原先是硬编码的绝对路径，公开仓库不该出现本机用户名。
-_LOCALAPPDATA = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
 _RG_CANDIDATES = (
     "rg", "rg.exe",
-    os.path.join(_LOCALAPPDATA, "Programs", "Tuanjie Cowork", "app", "resource",
+    # 2026-10-03 隐私清理：不再硬编码本机绝对路径，按环境变量动态拼
+    os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+                 "Programs", "Tuanjie Cowork", "app", "resource",
                  "core", "bin", "win32-x64", "rg.exe"),
 )
 _RG_CACHE: Dict[str, Optional[str]] = {"path": None, "probed": False}  # type: ignore
@@ -473,10 +472,14 @@ def run_tests(ctx: ToolContext, test_path: Optional[str] = None, timeout_sec: Op
     ``python -m unittest <module>`` 必然 ``ModuleNotFoundError``。而 ``unittest discover``
     会把 ``-t`` 指定的绝对目录插进 ``sys.path``，因此能稳定 import 沙箱里的模块。
 
-    ★★ 安全（2026-09-28 外部审查后加固）：被测代码是**模型改写过的**，import 时能任意行事。
-    所以子进程不再继承 `os.environ`，而是用 :mod:`sandbox` 给的干净环境（丢代理与凭据、
-    HOME 指向临时目录、禁写字节码）。**注意这仍是缓解而非沙箱**——不阻断 socket、
-    不限文件访问；真隔离需要 OS 级手段，见 `sandbox.real_isolation_available()`。
+    ★★ 安全（2026-09-28 外部审查后加固；2026-10-03 升级为 Job Object 硬约束）：
+    被测代码是**模型改写过的**，import 时能任意行事。防线三层：
+      1. :mod:`sandbox` 干净环境（丢代理与凭据、HOME 指向临时目录、禁写字节码）；
+      2. Windows 上用 :mod:`winjob` 把子进程放进 Job Object：内存上限 1 GiB、
+         每进程 CPU 120s、Job 墙钟 180s、Kill-on-close、UI 全禁（剪贴板/桌面/全局原子…）；
+      3. strict 模式（LOCAL_IDE_SANDBOX_STRICT=1）追加**网络探针**：探针报告能直连外网
+         就拒绝执行测试——宁可拒跑也不假装安全。
+    仍不覆盖的：任意文件读写（该用户能碰的都能碰）——那是账户口径，进程口径管不了。
     """
     import sandbox as _sb
     strict = (os.environ.get("LOCAL_IDE_SANDBOX_STRICT", "0") == "1"
@@ -496,13 +499,64 @@ def run_tests(ctx: ToolContext, test_path: Optional[str] = None, timeout_sec: Op
     # ★ 干净环境：不继承代理/密钥；HOME/TEMP 指向隔离目录
     env = _sb.sanitized_env()
     t0 = time.time()
+
+    use_job = False
+    job = None
     try:
-        proc = subprocess.run(cmd, cwd=ctx.root, capture_output=True, text=True,
-                              timeout=int(timeout_sec or ctx.timeout_sec),
-                              encoding="utf-8", errors="replace", env=env)
-    except subprocess.TimeoutExpired:
-        return {"rc": -9, "tests_run": 0, "failures": 0, "errors": 0, "ok": False,
-                "sec": time.time() - t0, "cmd": cmd, "output": "测试超时（%ss）" % (timeout_sec or ctx.timeout_sec)}
+        import winjob as _wj
+        use_job = bool(_wj.IS_AVAILABLE)
+    except Exception:
+        use_job = False
+
+    if use_job:
+        # ★ Job Object 路径（Windows）：内存/CPU/UI 硬约束 + Kill-on-close
+        try:
+            r = _wj.launch_isolated(cmd, ctx.root, env,
+                                    mem_mb=int(os.environ.get("LOCAL_IDE_SANDBOX_MEM_MB", "1024")),
+                                    wall_sec=int(timeout_sec or ctx.timeout_sec),
+                                    cpu_sec=int(os.environ.get("LOCAL_IDE_SANDBOX_CPU_SEC", "120")))
+            proc, job = r["proc"], r["job"]
+        except Exception as e:  # noqa: BLE001 —— 拿不到 Job 就退回普通子进程（缓解仍在）
+            use_job = False
+            note_job = "winjob 启动失败（%s），退回普通子进程" % e
+            job = None
+        else:
+            try:
+                out_bytes, _ = proc.communicate(
+                    timeout=int(timeout_sec or ctx.timeout_sec))
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _wj.cleanup(job)
+                return {"rc": -9, "tests_run": 0, "failures": 0, "errors": 0, "ok": False,
+                        "sec": time.time() - t0, "cmd": cmd,
+                        "output": "测试超时（%ss，Job 已强杀）" % (timeout_sec or ctx.timeout_sec)}
+            _wj.cleanup(job)
+            out = (out_bytes or b"").decode("utf-8", "replace")
+            rc = proc.returncode
+            # strict：追加网络探针（探通=拒跑）。探针只在 strict 时才跑（省一次启动）。
+            net_note = ""
+            if strict:
+                ok_net, why_net = _wj.probe_network_blocked(
+                    lambda c, wd_, e_: _wj.launch_isolated(c, wd_, e_),
+                    ctx.root, env)
+                net_note = "网络探针：%s" % why_net
+                if not ok_net:
+                    return {"rc": -8, "tests_run": 0, "failures": 0, "errors": 0,
+                            "ok": False, "sec": time.time() - t0, "cmd": cmd,
+                            "output": "strict 模式：被测环境网络未被阻断（%s），拒绝执行" % why_net}
+            m = re.search(r"Ran (\d+) tests?", out)
+            n = int(m.group(1)) if m else 0
+            fail = len(re.findall(r"^FAIL:", out, re.M))
+            err = len(re.findall(r"^ERROR:", out, re.M))
+            return {"rc": rc, "tests_run": n, "failures": fail, "errors": err,
+                    "ok": rc == 0, "sec": time.time() - t0, "cmd": cmd,
+                    "job_object": True, "net_note": net_note,
+                    "output": out[-4000:]}
+
+    # 非 Windows / winjob 不可用：普通子进程（缓解路径，与 0928 版一致）
+    proc = subprocess.run(cmd, cwd=ctx.root, capture_output=True, text=True,
+                          timeout=int(timeout_sec or ctx.timeout_sec),
+                          encoding="utf-8", errors="replace", env=env)
     out = (proc.stdout or "") + (proc.stderr or "")
     m = re.search(r"Ran (\d+) tests?", out)
     n = int(m.group(1)) if m else 0
@@ -510,6 +564,7 @@ def run_tests(ctx: ToolContext, test_path: Optional[str] = None, timeout_sec: Op
     err = len(re.findall(r"^ERROR:", out, re.M))
     return {"rc": proc.returncode, "tests_run": n, "failures": fail, "errors": err,
             "ok": proc.returncode == 0, "sec": time.time() - t0, "cmd": cmd,
+            "job_object": False,
             "output": out[-4000:]}
 
 

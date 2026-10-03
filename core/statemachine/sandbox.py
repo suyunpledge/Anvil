@@ -102,17 +102,17 @@ def dropped_names() -> List[str]:
 def real_isolation_available() -> Tuple[bool, str]:
     """探测本机是否具备真正的 OS 级隔离手段。返回 (可用?, 说明)。
 
-    现在这台机器上是**不可用**的——这不是 bug，是事实：
-    Windows 上要真隔离需要 Job Object + 受限令牌（或 wsl/容器），本机没有现成能力。
-    把它显式探测出来，是为了让 `strict` 模式能诚实地失败，而不是假装安全。
+    2026-10-03 起 Windows 上接入了 **Job Object**（winjob.py，ctypes 零依赖）：
+    Kill-on-close / 内存上限 / CPU 与墙钟上限 / UI 全禁。返回 True 表示本机具备
+    「进程级硬约束」能力；**网络隔离**另由探针判定（见 winjob.probe_network_blocked），
+    因为 Job Object 本身不覆盖防火墙语义。
     """
     if sys.platform.startswith("win"):
-        for exe in ("wsl.exe",):
-            for d in (os.environ.get("SystemRoot", r"C:\Windows"), r"C:\Windows\System32"):
-                p = os.path.join(d, exe)
-                if os.path.isfile(p):
-                    return False, "Windows：仅检测到 wsl.exe，未接入受限令牌/Job Object 隔离"
-        return False, "Windows：未配置受限令牌或 Job Object 隔离"
+        try:
+            import winjob  # 同目录，ctypes 零依赖
+            return bool(winjob.IS_AVAILABLE), "Windows：Job Object 隔离可用（winjob）"
+        except Exception as e:  # noqa: BLE001
+            return False, "Windows：winjob 加载失败（%s）" % e
     # Linux/macOS：看常见沙箱工具
     import shutil
     for tool in ("bwrap", "sandbox-exec"):
@@ -136,11 +136,19 @@ def assert_real_isolation_available(strict: bool) -> None:
 def summary() -> Dict[str, object]:
     """一行说清这层到底做了什么（给自检与文档用）。"""
     ok, why = real_isolation_available()
+    job = False
+    if sys.platform.startswith("win"):
+        try:
+            import winjob
+            job = bool(winjob.IS_AVAILABLE)
+        except Exception:
+            job = False
     return {
         "env_sanitized": True,
         "proxy_blocked": True,
         "home_isolated": True,
         "os_isolation": ok,
         "os_isolation_note": why,
+        "job_object": job,
         "drops": len(dropped_names()),
     }

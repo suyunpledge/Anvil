@@ -43,6 +43,7 @@ CORE_SUITES = [
     ("核心·Qwen2.5-Coder 适配层", ["core/compatibility/test_qwen_coder_adapter.py"]),
     ("核心·GLM4 适配层", ["core/compatibility/test_glm4_adapter.py"]),
     ("核心·整理工具与删除安全", ["core/statemachine/test_ops_tools.py"]),
+    ("核心·Job Object 隔离", ["core/statemachine/test_winjob.py"]),
 ]
 
 

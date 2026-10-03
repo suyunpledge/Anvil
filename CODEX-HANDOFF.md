@@ -86,12 +86,24 @@ code 工单走「暂存区 → 三个 gate → 人确认 → 原子替换」，t
 
 ### 4.3 仍然存在的（**留给你判断**）
 
-1. **"沙箱"只是缓解，不是隔离（最重要的一条）。**
-   `sandbox.py` 做了三件事：清环境变量（丢代理与凭据类）、掐断代理、把 HOME 指向临时目录。
-   它**不阻止 `socket()` 直连、不限制文件访问、不限 CPU/内存**。
-   真隔离需要 OS 级手段（Windows：Job Object + 受限令牌；Linux：bwrap/unshare），本机没有现成能力，
-   所以 `real_isolation_available()` 会如实返回 `False`；`LOCAL_IDE_SANDBOX_STRICT=1` 时宁可拒跑也不假装安全。
-   **如果要真正硬它，这是第一优先级。**
+1. **"沙箱"——2026-10-03 起升级为 Job Object 硬约束（Windows）。**
+   原 v1 是纯缓解（清环境变量、掐代理、HOME 指向临时目录），**不阻断 socket、不限内存/CPU**。
+   现在 `core/statemachine/winjob.py`（ctypes 零依赖）给测试 gate 的子进程套上 Job Object：
+     · Kill-on-close（父进程死，子进程必死）
+     · 内存上限（默认 1 GiB，`LOCAL_IDE_SANDBOX_MEM_MB` 可调）
+     · 每进程 CPU 120s + Job 墙钟（`LOCAL_IDE_SANDBOX_CPU_SEC`）
+   剩余缺口（如实记录）：
+     · **网络**：Job Object 管不了防火墙语义。本机实测探针可达外网（正常）。
+       `LOCAL_IDE_SANDBOX_STRICT=1` 时 run_tests 会先跑网络探针，**探通即拒跑**——
+       宁可拒执行也不假装隔离。要真断网需 Windows 防火墙出站规则或容器。
+     · **文件访问**：仍是账户口径（该用户能碰的都能碰）。
+     · **UI 限制（JOB_OBJECT_UILIMIT_*）在本机 Windows 11 25H2 恒 err 87**，
+       已如实放弃（见 winjob.py 尾部实测记录）。
+   实现要点（踩过）：
+     · `AssignProcessToJobObject` 需要 `PROCESS_SET_QUOTA | PROCESS_TERMINATE`（只给 TERMINATE 会 err 5）
+     · 内核句柄必须显式 `restype = HANDLE`（64 位下默认 c_int 会截断）
+     · `subprocess` 不暴露 `CREATE_SUSPENDED`（用 0x4）+ `NtResumeProcess` 恢复
+   回归：`core/statemachine/test_winjob.py`（3 例：正常完成/内存超限被杀/探针如实）。
 
 2. **取消是协作式的，粒度是"两个节点之间"。**
    `CancellableAdapter` 只在每次 `fill_slot`/`ask` 前检查标记。模型正在生成时不会立刻断。

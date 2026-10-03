@@ -67,17 +67,32 @@ class SandboxEnvTest(unittest.TestCase):
         self.assertTrue(env.get("SystemRoot") or env.get("SYSTEMROOT"))
 
     def test_os_isolation_honestly_reported(self) -> None:
-        """★ 不许假装有沙箱：本机拿不到 OS 级隔离就如实说。"""
+        """★ 不许假装有沙箱：有就报有（并说明手段），没有就报没有（并说明原因）。
+
+        2026-10-03 起 Windows 有 Job Object（winjob），本机报 True——测试只验证
+        「报告与实际能力一致」，不再绑定具体值。
+        """
         ok, why = SB.real_isolation_available()
-        self.assertFalse(ok, "本机当前不应报告为具备 OS 级隔离")
-        self.assertTrue(why)
+        if ok:
+            self.assertIn("Job Object", why)
+        else:
+            self.assertTrue(why)
         s = SB.summary()
-        self.assertFalse(s["os_isolation"])
+        self.assertEqual(bool(s["os_isolation"]), ok)
         self.assertTrue(s["env_sanitized"])
 
     def test_strict_mode_refuses_without_real_isolation(self) -> None:
-        with self.assertRaises(RuntimeError):
+        """★ 2026-10-03 起 Windows 有 Job Object 隔离（winjob），strict 应当**通过**。
+        strict 的语义是「拿不到真隔离就拒跑」——现在拿得到了，所以不拒。"""
+        ok, why = SB.real_isolation_available()
+        if ok:
+            # 有真隔离：strict 与非 strict 都不应抛
             SB.assert_real_isolation_available(strict=True)
+            SB.assert_real_isolation_available(strict=False)
+        else:
+            # 没有真隔离的环境：strict 必须拒跑
+            with self.assertRaises(RuntimeError):
+                SB.assert_real_isolation_available(strict=True)
         SB.assert_real_isolation_available(strict=False)   # 不抛
 
     def test_dropped_names_returns_names_not_values(self) -> None:
@@ -111,7 +126,11 @@ class SandboxExecTest(unittest.TestCase):
         self.assertTrue(g.ok, (g.raw or {}).get("output", "")[-400:])
         notes = (g.raw or {}).get("sandbox") or {}
         self.assertTrue(notes.get("env_sanitized"))
-        self.assertFalse(notes.get("os_isolation"))
+        # 2026-10-03 起 Windows 有 Job Object：os_isolation 可能为 True（有真隔离）
+        # 或 False（无 winjob 的环境）。两种都合法，只要求字段存在且与 summary 一致。
+        self.assertIn(notes.get("os_isolation"), (True, False))
+        if notes.get("os_isolation"):
+            self.assertTrue(notes.get("job_object"))
 
     def test_run_tests_reports_sandbox_notes(self) -> None:
         r = TOOLS.run_tests(self.ctx, test_path="t.py")
