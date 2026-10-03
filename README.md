@@ -162,3 +162,5 @@ Pick by measurement (data from this machine):
 what was done, what was not, where the known defects are, how to verify, and what not to touch.
 `docs/验收清单.md` is the item-by-item acceptance criteria.
 Four rounds of model benchmark notes (incl. the glm4 rehabilitation): `docs/模型测验全记录.md`.
+Model capability cheatsheet: `docs/模型特点速查.md`.
+Capability / permission / deletion-safety design: `docs/能力权限与安全.md`.

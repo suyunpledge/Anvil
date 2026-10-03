@@ -105,8 +105,15 @@ class ConfirmPolicy:
         token = os.environ.get("LOCAL_IDE_REQUIRE_TOKEN", "1") != "0"
         return cls(force, roots, token)
 
-    def effective_confirm(self, client_wants: bool) -> bool:
-        """策略优先：要确认时必须确认。"""
+    def effective_confirm(self, client_wants: bool, allow_delete: bool = False) -> bool:
+        """策略优先：要确认时必须确认。
+
+        ★ 2026-10-03：工单一旦声明 allow_delete（具备删除能力），**无条件强制确认**——
+        这条不受 LOCAL_IDE_REQUIRE_CONFIRM=0 影响。理由：删除不可逆，
+        「每次删除都要人同意」是用户明确要求，不能被任何环境变量关掉。
+        """
+        if allow_delete:
+            return True
         return True if self.force_confirm else bool(client_wants)
 
     def workdir_allowed(self, path: str) -> bool:
@@ -160,6 +167,8 @@ if _FASTAPI_OK:
         dirs: List[str] = Field(default_factory=list)
         semantic: bool = False
         max_repair_rounds: int = 3
+        # tidy 专用：开启删除（服务端会强制人确认，且执行时自动备份）
+        allow_delete: bool = False
         require_confirm: bool = True
 else:
     class CreateReq:                       # type: ignore
@@ -228,7 +237,8 @@ def build_app():
         if opts.kind == "tidy" and not opts.workdir:
             return JSONResponse(status_code=400, content={"error": "tidy 工单需要 workdir"})
         # ★ 服务端策略：策略要求确认时，客户端传 require_confirm=false 不生效
-        opts.require_confirm = policy.effective_confirm(opts.require_confirm)
+        opts.require_confirm = policy.effective_confirm(opts.require_confirm,
+                                                        opts.allow_delete)
         # ★ 工作目录白名单（设了才生效）
         if not policy.workdir_allowed(opts.workdir):
             return JSONResponse(status_code=403,

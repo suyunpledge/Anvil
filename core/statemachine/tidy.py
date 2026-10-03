@@ -15,14 +15,14 @@
     scan（扫清单） → plan（模型出方案） → check_gate（方案闸） → apply（执行） → verify_gate（复核闸）
 
 与代码工单共用的东西：工单结构、Step/GateResult、回退循环、画像、引擎级工具授权。
-不同的东西：三个 gate 的检查内容、以及**默认零删除**这条硬规则。
+不同的东西：三个 gate 的检查内容、以及**删除的口径**（见下）。
 
 三个 gate 的检查口径：
 
   check_gate  方案闸（执行前）：
     · 每条 move 的源必须真实存在、目标必须落在工单声明的根目录内
     · 目标目录必须由方案自己创建（不允许凭空调到已存在目录）
-    · **永不删除**：出现 delete/remove 类动作直接判失败（v1 口径，见下）
+    · **默认零删除**：除非工单显式声明 allow_delete=true，否则 delete 类动作直接判失败
     · 一次规划的动作数上限（防一次性大搬家）
   apply       执行：逐个 move，每个都做「目标已存在则停」检查（绝不覆盖）
   verify_gate 复核闸（执行后）：
@@ -30,9 +30,16 @@
     · 目标目录内的文件数 == 方案声称的数量
     · 没有任何文件丢失（逐名比对：未移动的仍在原位）
 
-为什么 v1 默认零删除：删文件是不可逆的，而「整理」根本不需要删。
-想清空重复文件是另一个工单（那要人逐个确认）。先把不可逆动作从工具集里拿掉——
-这与代码侧的「编辑节点不给 write_file」是同一条思路：**不靠提示词，靠结构**。
+删除口径（2026-10-03 起，用户明确要求）：
+  默认仍**零删除**；确要清理的工单，建单时声明 ``allow_delete=true``，此时：
+    · 方案闸放行 delete 动作，但单次删除数有上限（MAX_DELETES=50）；
+    · 服务端**强制人确认**（require_confirm 被置真）——没确认不会走到 apply；
+    · apply 里每次删除都先经 ``safeops.backup_and_delete``：备份 → 校验（文件比
+      sha256、目录比文件数与字节）→ 通过才删；校验不过则**中止且不删**；
+    · 复核闸逐条核对「声称删掉的，备份文件确实在」。
+
+  「同意」与「备份」两条都不靠提示词，靠结构：
+  前者是服务端策略 + confirm 接口，后者是 safeops 的写-校验-删顺序。
 """
 from __future__ import annotations
 
@@ -46,11 +53,19 @@ from typing import Any, Dict, List, Optional
 
 from contract import GateIssue, GateResult
 
-#: v1 允许的动作类型（只有移动；改名也用 move 表达）
-ALLOWED_ACTIONS = ("move",)
+import safeops  # 删除+备份的唯一真相源（同目录模块，2026-10-03）
 
-#: 明令禁止的动作类型——出现即方案闸判失败
-FORBIDDEN_ACTIONS = ("delete", "remove", "rm", "trash", "unlink", "overwrite", "shutil.rmtree")
+#: 允许的动作类型：移动（改名也用 move 表达）+ 删除（2026-10-03 起，**条件允许**）
+ALLOWED_ACTIONS = ("move", "delete")
+
+#: 删除动作的别名（模型可能换个说法）
+DELETE_ACTIONS = ("delete", "remove", "rm", "trash", "unlink")
+
+#: 真正一律禁止的动作类型——「覆盖式」写法会绕过备份，永不接受
+FORBIDDEN_ACTIONS = ("overwrite", "shutil.rmtree")
+
+#: 单次工单允许的最大删除数（比 move 更严；防「批量清空」）
+MAX_DELETES = 50
 
 #: 单次工单允许的最大移动数（防「一次性大搬家」）
 MAX_MOVES = 200
@@ -74,16 +89,20 @@ class TidyOrder:
     target_dirs: List[str] = field(default_factory=list)   # 允许归入的目录名（相对 root）
     filters: Dict[str, Any] = field(default_factory=dict)  # {"ext": [".pdf"], "name_re": "..."}
     max_moves: int = MAX_MOVES
+    max_deletes: int = MAX_DELETES
     constraints: Dict[str, Any] = field(default_factory=lambda: {
-        "allow_delete": False,      # ★ v1 硬写死 False
-        "overwrite": False,         # ★ v1 硬写死 False
+        # ★ 默认仍与 v1 一致：删/覆盖都关。开启删除的唯一路径是建单时显式声明
+        #   allow_delete=True，而服务端会同时强制 require_confirm（见 runner）。
+        "allow_delete": False,
+        "overwrite": False,
         "max_repair_rounds": 2,
     })
 
     def to_dict(self) -> Dict[str, Any]:
         return {"wo_id": self.wo_id, "task": self.task, "root": self.root, "mode": self.mode,
                 "target_dirs": self.target_dirs, "filters": self.filters,
-                "max_moves": self.max_moves, "constraints": self.constraints}
+                "max_moves": self.max_moves, "max_deletes": self.max_deletes,
+                "constraints": self.constraints}
 
 
 # ============================================================
@@ -152,16 +171,36 @@ def check_plan(root: str, plan: Dict[str, Any], order: TidyOrder) -> GateResult:
                                 % (len(moves), order.max_moves),
                                 hint="拆成多次工单，一次少整理一些"))
 
-    # ① 不得出现删除类动作（结构上不允许，而不是提示词劝阻）
+    # ① 动作类型闸
+    #   2026-10-03 起：删除**条件允许**——只有工单显式声明 allow_delete=true
+    #   且已进入「人工确认」口径时才放行；默认仍与 v1 一样零删除。
+    #   这不是提示词劝阻，是结构判定：没这个开关，删除动作在方案闸就死了。
+    allow_delete = bool((order.constraints or {}).get("allow_delete", False))
+    delete_count = 0
     for i, mv in enumerate(moves):
         act = str((mv or {}).get("action", "move")).lower()
-        if act in FORBIDDEN_ACTIONS or any(f in act for f in FORBIDDEN_ACTIONS):
-            issues.append(GateIssue("forbidden_delete",
-                                    "第 %d 个动作是删除类（%s）——本版一律禁止" % (i + 1, act),
-                                    hint="整理不需要删除；要清理请单开一个需人工确认的工单"))
-        elif act not in ALLOWED_ACTIONS:
+        is_delete = act in DELETE_ACTIONS or any(f in act for f in DELETE_ACTIONS)
+        if any(f in act for f in FORBIDDEN_ACTIONS):
+            issues.append(GateIssue("forbidden_action",
+                                    "第 %d 个动作是禁止类型（%s）——会绕过备份，永不接受"
+                                    % (i + 1, act)))
+            continue
+        if is_delete:
+            delete_count += 1
+            if not allow_delete:
+                issues.append(GateIssue(
+                    "delete_not_allowed",
+                    "第 %d 个动作是删除（%s），但本工单未开启 allow_delete" % (i + 1, act),
+                    hint="整理默认零删除；确需清理请建单时声明 allow_delete=true（会强制人工确认+自动备份）"))
+            continue
+        if act not in ALLOWED_ACTIONS:
             issues.append(GateIssue("unknown_action",
                                     "第 %d 个动作类型未知：%s" % (i + 1, act)))
+    if delete_count > int(getattr(order, "max_deletes", MAX_DELETES)):
+        issues.append(GateIssue("too_many_deletes",
+                                "方案包含 %d 个删除，超过单次上限 %d"
+                                % (delete_count, getattr(order, "max_deletes", MAX_DELETES)),
+                                hint="删东西比搬东西危险，一次少删一点"))
 
     # ② 源必须真实存在，且必须在 root 内
     existing = set(os.listdir(root))
@@ -169,20 +208,27 @@ def check_plan(root: str, plan: Dict[str, Any], order: TidyOrder) -> GateResult:
     for i, mv in enumerate(moves):
         src = str((mv or {}).get("src", ""))
         dst = str((mv or {}).get("dst", ""))
-        if not src or not dst:
-            issues.append(GateIssue("missing_field", "第 %d 个动作缺少 src 或 dst" % (i + 1)))
+        _act = str((mv or {}).get("action", "move")).lower()
+        _is_del = _act in DELETE_ACTIONS or any(f in _act for f in DELETE_ACTIONS)
+        if not src or (not dst and not _is_del):
+            issues.append(GateIssue("missing_field",
+                                    "第 %d 个动作缺少 src%s"
+                                    % (i + 1, "" if _is_del else " 或 dst")))
             continue
         src_rel = _rel(src)
         dst_rel = _rel(dst)
         if os.path.isabs(src_rel) or ".." in src_rel.split("/"):
             issues.append(GateIssue("src_outside", "第 %d 个动作的源越出根目录：%s" % (i + 1, src)))
-        if os.path.isabs(dst_rel) or ".." in dst_rel.split("/"):
+        if not _is_del and (os.path.isabs(dst_rel) or ".." in dst_rel.split("/")):
             issues.append(GateIssue("dst_outside", "第 %d 个动作的目标越出根目录：%s" % (i + 1, dst)))
         if src_rel.split("/")[0] not in existing:
             issues.append(GateIssue("src_missing", "第 %d 个动作的源不存在：%s" % (i + 1, src),
                                     hint="只能移动扫描清单里出现过的文件"))
         names_seen[src_rel] = names_seen.get(src_rel, 0) + 1
         # 目标目录必须在允许清单里（给了 target_dirs 就只认这些；没给则要求是根下的新目录）
+        # 删除动作没有目标目录，跳过这一段（2026-10-03）
+        if _is_del:
+            continue
         top = dst_rel.split("/")[0]
         if order.target_dirs:
             if top not in order.target_dirs:
@@ -197,9 +243,12 @@ def check_plan(root: str, plan: Dict[str, Any], order: TidyOrder) -> GateResult:
         if cnt > 1:
             issues.append(GateIssue("duplicate_src", "文件 %s 被安排了 %d 次移动" % (name, cnt)))
 
-    # ④ 目标不得覆盖已有文件
+    # ④ 目标不得覆盖已有文件（删除动作无目标，跳过）
     if not order.constraints.get("overwrite", False):
         for i, mv in enumerate(moves):
+            _a = str((mv or {}).get("action", "move")).lower()
+            if _a in DELETE_ACTIONS or any(f in _a for f in DELETE_ACTIONS):
+                continue
             dst = _rel((mv or {}).get("dst", ""))
             if dst and os.path.exists(os.path.join(root, dst)):
                 issues.append(GateIssue("dst_exists",
@@ -216,12 +265,32 @@ def apply_plan(root: str, plan: Dict[str, Any], log: Optional[List[str]] = None)
     root = os.path.abspath(root)
     log = log if log is not None else []
     moved: List[Dict[str, str]] = []
+    deleted: List[Dict[str, str]] = []
     created_dirs: List[str] = []
     for mv in plan.get("moves", []):
         src = _rel(mv.get("src", ""))
         dst = _rel(mv.get("dst", ""))
         s_abs = os.path.join(root, src)
         d_abs = os.path.join(root, dst)
+
+        # ★ 删除动作（2026-10-03）：走 safeops —— 先备份、校验、再删。
+        #   本函数只应在「已获人工同意」后被调用（服务层 confirm 之后才 apply），
+        #   所以这里不再做同意判定，只保证「删之前一定有可校验的备份」。
+        _act = str(mv.get("action") or "move").lower()
+        if _act in DELETE_ACTIONS or any(f in _act for f in DELETE_ACTIONS):
+            if not os.path.exists(s_abs):
+                log.append("跳过删除（目标不存在）：%s" % src)
+                continue
+            try:
+                info = safeops.backup_and_delete(root, src, recursive=True)
+            except Exception as e:  # noqa: BLE001 —— 删不掉就跳过，绝不「删一半」
+                log.append("删除失败（已跳过，原文件保留）：%s —— %s" % (src, e))
+                continue
+            deleted.append({"src": src, "backup": info.get("backup", ""),
+                            "kind": info.get("kind", "")})
+            log.append("删除：%s（备份 %s）" % (src, info.get("backup", "")))
+            continue
+
         if not os.path.exists(s_abs):
             log.append("跳过（源不存在）：%s" % src)
             continue
@@ -236,7 +305,7 @@ def apply_plan(root: str, plan: Dict[str, Any], log: Optional[List[str]] = None)
         shutil.move(s_abs, d_abs)          # 同盘 rename，跨盘也能用
         moved.append({"src": src, "dst": dst})
         log.append("移动：%s → %s" % (src, dst))
-    return {"moved": moved, "created_dirs": created_dirs, "log": log}
+    return {"moved": moved, "deleted": deleted, "created_dirs": created_dirs, "log": log}
 
 
 # ============================================================
@@ -248,8 +317,13 @@ def verify_after(root: str, plan: Dict[str, Any], before: Dict[str, Any],
     root = os.path.abspath(root)
     issues: List[GateIssue] = []
     moved = apply_result.get("moved", [])
+    deleted = apply_result.get("deleted", [])
     before_names = {f["name"] for f in before.get("files", [])}
     moved_src = {m["src"] for m in moved}
+    # 只把「扫描清单里出现过」的删除项计入守恒：扫描本就会跳过 .tmp/.log 等，
+    # 删掉这些「本来就不在清单里」的文件是正当的（清垃圾），不该判为丢文件。
+    deleted_src = {d["src"] for d in deleted if d["src"] in before_names}
+    deleted_outside = {d["src"] for d in deleted} - deleted_src
 
     # ① 原位置应当只剩「没被移动的」文件
     remain = set()
@@ -257,7 +331,7 @@ def verify_after(root: str, plan: Dict[str, Any], before: Dict[str, Any],
         full = os.path.join(root, name)
         if os.path.isfile(full) and name in before_names:
             remain.add(name)
-    expected_remain = before_names - moved_src
+    expected_remain = before_names - moved_src - deleted_src
     if remain != expected_remain:
         missing = sorted(expected_remain - remain)
         extra = sorted(remain - expected_remain)
@@ -294,13 +368,23 @@ def verify_after(root: str, plan: Dict[str, Any], before: Dict[str, Any],
                                     hint="这是最严重的情况，立刻人工检查"))
 
     # ④ 计数守恒：原文件数 == 原位剩余 + 已移动
-    if len(remain) + len(moved) != len(before_names):
+    # ⑥ 删除的必须真有备份（删了但没备份 = 不可恢复，最高优先级告警）
+    for d in deleted:
+        b_abs = os.path.join(root, str(d.get("backup", "")).replace("/", os.sep))
+        if not d.get("backup") or not os.path.exists(b_abs):
+            issues.append(GateIssue("delete_without_backup",
+                                    "声称删除了 %s，但备份文件不存在（%s）"
+                                    % (d.get("src"), d.get("backup")),
+                                    hint="这是最严重的情况，立刻人工检查 .ide-backup/"))
+    if len(remain) + len(moved) + len(deleted_src) != len(before_names):
         issues.append(GateIssue("count_mismatch",
-                                "计数不守恒：原 %d 个，原位剩 %d 个，已移动 %d 个"
-                                % (len(before_names), len(remain), len(moved))))
+                                "计数不守恒：原 %d 个，原位剩 %d 个，已移动 %d 个，清单内已删除 %d 个"
+                                % (len(before_names), len(remain), len(moved), len(deleted_src))))
 
     return GateResult("verify_gate", not issues, issues=issues, sec=time.time() - t0,
-                      raw={"moved": len(moved), "remain": len(remain),
+                      raw={"moved": len(moved), "deleted": len(deleted),
+                           "deleted_outside_scan": sorted(deleted_outside),
+                           "remain": len(remain),
                            "created_dirs": apply_result.get("created_dirs", [])})
 
 

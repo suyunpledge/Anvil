@@ -26,6 +26,15 @@ TOOLSETS: Dict[str, List[str]] = {
     "commit":  ["git_commit", "list_dir"],                 # 只能提交，不能改文件
     "shell":   ["run_shell"],                              # 单列，且必须过命令闸
     "judge":   [],                                         # 判题：从候选中选，无执行权
+    # ---- 整理 / 基础电脑操作节点（2026-10-03 新增）----
+    #   权限口径（用户明确要求「不能给完整权限，仅限整理文件」）：
+    #     · 只给**文件/目录级**操作，给不了通用能力；
+    #     · ★ 不含 run_shell —— 拿不到任意命令执行权；
+    #     · ★ 不含 write_file / apply_patch —— 不作代码内容写入
+    #       （改代码是 code 链 edit 节点的事，两条链各管各的）；
+    #     · delete_file 是唯一破坏性动作，且工具层强制「先确认、再备份、后删除」。
+    "ops":     ["list_dir", "read_file", "file_info", "find_files", "search_code",
+                "make_dir", "move_file", "copy_file", "delete_file", "open_path"],
 }
 
 # ============================================================
@@ -53,10 +62,15 @@ DESTRUCTIVE_PATTERNS: List[Tuple[str, str]] = [
     (r"\b(shutdown|reboot|halt)\b", "关机/重启"),
     (r"\bdd\s+if=.*of=/dev/",    "dd 写设备"),
     (r">\s*/dev/sd",             "写块设备"),
+    # ★ 2026-10-03：删除/移动类工具的路径参数体检——挡住「想办法跳出沙箱」的写法
+    (r"\.\.[\\/]",              "路径回退（试图跳出沙箱）"),
+    (r"(^|[\\/])\*",             "通配符批量操作（易误伤）"),
 ]
 
 # 需要过闸的工具（参数被当作命令文本体检）
-GATED_TOOLS: set = {"run_shell"}
+#   delete_file / move_file 也纳入：路径参数里塞 `..\..\` 或通配符这类
+#   「想绕开沙箱」的写法，会在这里被危险模式挡下（2026-10-03）。
+GATED_TOOLS: set = {"run_shell", "delete_file", "move_file"}
 
 # 预编译（原实现每次调用都重新 re.search 字符串，这里改成编译一次）
 _COMPILED: List[Tuple[re.Pattern, str]] = [

@@ -123,6 +123,7 @@ class RunnerOpts:
     dirs: List[str] = field(default_factory=list)     # tidy：允许归入的目录
     semantic: bool = False                 # tidy：用本地嵌入给建议
     max_repair_rounds: int = 3
+    allow_delete: bool = False             # ★ tidy：开启删除（会强制人确认 + 自动备份）
     require_confirm: bool = True           # ★ 落盘必须经人确认
     wo_id: str = ""
 
@@ -373,9 +374,15 @@ class WorkOrderRunner:
             hints = {d: _DEFAULT_HINTS.get(d, "%s 类文件" % d) for d in self.opts.dirs}
         # 人确认模式下先只出方案（dry_run），确认时再执行
         mode = "dry_run" if self.opts.require_confirm else self.opts.mode
+        # ★ 2026-10-03：删除能力由工单显式声明。allow_delete 为真时，方案闸才放行
+        #   delete 动作；真正的「同意」由服务端 require_confirm + /confirm 接口保证，
+        #   「备份」由 safeops 在 apply 阶段保证（写-校验-删）。
         order = TidyOrder(wo_id=self.wo_id, task=self.opts.task,
                           root=os.path.abspath(self.opts.workdir), mode=mode,
-                          target_dirs=list(self.opts.dirs))
+                          target_dirs=list(self.opts.dirs),
+                          constraints={"allow_delete": bool(self.opts.allow_delete),
+                                       "overwrite": False,
+                                       "max_repair_rounds": self.opts.max_repair_rounds})
         from tidy_engine import TidyStateMachine
         sm = TidyStateMachine(ad, order, runlog_dir=runtime_path("runs"), verbose=False,
                               on_event=lambda m: self.emit("progress", message=m),
@@ -462,6 +469,8 @@ class WorkOrderRunner:
         self.emit("applied", moved=len(applied.get("moved", [])), ok=vg.ok)
         self.emit("status", status=self.status)
         return {"ok": vg.ok, "moved": len(applied.get("moved", [])),
+                "deleted": len(applied.get("deleted", [])),
+                "backups": [d.get("backup") for d in applied.get("deleted", [])],
                 "verify": vg.to_dict()}
 
     # ---------------- 对外快照 ----------------

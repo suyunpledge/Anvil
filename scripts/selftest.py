@@ -30,6 +30,7 @@ SUITES = [
     ("安全回归（审查 7 条）", ["service/tests/test_security_fixes.py"]),
     ("自查修复（0929 审查）", ["service/tests/test_review_fixes.py"]),
     ("读口鉴权（0930 补齐）", ["service/tests/test_read_auth_2026_09_30.py"]),
+    ("整理链删除全链路（同意+备份）", ["service/tests/test_delete_flow.py"]),
 ]
 
 # 端到端 + 并发取消验证（需要起服务，不算\"单元\"，单独跑）
@@ -41,6 +42,7 @@ CORE_SUITES = [
     ("核心·Mythos 适配层", ["core/compatibility/test_mythos_adapter.py"]),
     ("核心·Qwen2.5-Coder 适配层", ["core/compatibility/test_qwen_coder_adapter.py"]),
     ("核心·GLM4 适配层", ["core/compatibility/test_glm4_adapter.py"]),
+    ("核心·整理工具与删除安全", ["core/statemachine/test_ops_tools.py"]),
 ]
 
 

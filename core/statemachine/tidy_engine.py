@@ -36,7 +36,8 @@ PLAN_SYSTEM = """你是一个文件整理方案生成器。你看得到一份文
 {"moves": [{"action": "move", "src": "原文件名", "dst": "目标目录/新文件名", "reason": "为什么"}]}
 
 硬规则：
-1) 只允许 move 动作。**绝对不允许删除**任何文件——方案里出现 delete/remove 一律作废；
+1) 默认只允许 move 动作；删除（delete/remove）仅在工单声明 allow_delete=true 时放行，
+   且必走「人工确认 + 自动备份」，否则一律作废；
 2) src 必须是清单里**逐字出现**的文件名（含扩展名），不要自己编路径、不要加前缀；
 3) dst 必须是「目录/文件名」，目录只能从允许的目标目录里选；
 4) 一个文件只能出现一次；
@@ -202,12 +203,18 @@ class TidyStateMachine:
             self._log("方案闸 → %s（%d 条问题）" % (g.signal, len(g.issues)))
             if g.ok:
                 break
-            # 删除类动作是安全边界，直接判死不回炉（与 R2 同口径）
-            if any(i.type == "forbidden_delete" for i in g.issues):
-                self._step("check_gate", round_no, "security", False, "方案含删除动作")
+            # 删除类动作是安全边界：**未开启 allow_delete 时直接判死、不回炉**（与 R2 同口径）。
+            #   2026-10-03 起支持「条件删除」：建单声明 allow_delete=true 时方案闸不再报
+            #   delete_not_allowed，删除走「人工确认 + safeops 备份校验」的正常路径；
+            #   而 overwrite / rmtree 这类会绕过备份的写法仍然一律判死。
+            if any(i.type in ("delete_not_allowed", "forbidden_action") for i in g.issues):
+                _why = ("方案含删除类动作，而本工单未开启 allow_delete（默认零删除）"
+                        if any(i.type == "delete_not_allowed" for i in g.issues)
+                        else "方案含禁止类动作（覆盖/递归删除），已拒绝执行")
+                self._step("check_gate", round_no, "security", False, _why)
                 return self._finish(TidyResult(
                     STATUS_SECURITY_ABORT, self.order, plan=plan, gates=self.gates,
-                    history=self.history, error="方案含删除类动作，已拒绝执行（v1 默认零删除）",
+                    history=self.history, error=_why,
                     elapsed=time.time() - t0), t0)
             feedback = g.feedback_text()
         else:

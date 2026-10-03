@@ -122,18 +122,37 @@ class CheckGateTest(_Base):
         self.assertFalse(g.ok)
         self.assertEqual(g.issues[0].type, "empty_plan")
 
-    def test_delete_action_rejected(self) -> None:
-        """★ v1 默认零删除：出现删除动作直接判失败（结构上不给商量）。"""
+    def test_delete_action_rejected_by_default(self) -> None:
+        """★ 默认零删除（2026-10-03 起仍为默认）：未开 allow_delete 时删除直接判失败。"""
         plan = {"moves": [{"action": "delete", "src": "报告.pdf", "dst": ""}]}
         g = check_plan(self.root, normalize_plan(plan), self.order())
         self.assertFalse(g.ok)
         types = {i.type for i in g.issues}
-        self.assertIn("forbidden_delete", types)
+        self.assertIn("delete_not_allowed", types)
 
-    def test_remove_alias_also_rejected(self) -> None:
+    def test_remove_alias_also_rejected_by_default(self) -> None:
         plan = {"moves": [{"action": "remove", "src": "报告.pdf"}]}
         g = check_plan(self.root, normalize_plan(plan), self.order())
-        self.assertIn("forbidden_delete", {i.type for i in g.issues})
+        self.assertIn("delete_not_allowed", {i.type for i in g.issues})
+
+    def test_delete_allowed_when_enabled(self) -> None:
+        """★ 条件删除（2026-10-03）：工单声明 allow_delete=true 后，删除动作过方案闸。"""
+        order = self.order()
+        order.constraints["allow_delete"] = True
+        plan = {"moves": [{"action": "delete", "src": "报告.pdf"}]}
+        g = check_plan(self.root, normalize_plan(plan), order)
+        self.assertTrue(g.ok, [i.type for i in g.issues])
+
+    def test_delete_count_capped(self) -> None:
+        """删除数有单独上限（比 move 更严）——防「批量清空」。"""
+        order = self.order()
+        order.constraints["allow_delete"] = True
+        order.max_deletes = 2
+        plan = {"moves": [{"action": "delete", "src": "报告.pdf"},
+                          {"action": "delete", "src": "报告2.pdf"},
+                          {"action": "delete", "src": "报告3.pdf"}]}
+        g = check_plan(self.root, normalize_plan(plan), order)
+        self.assertIn("too_many_deletes", {i.type for i in g.issues})
 
     def test_src_must_exist(self) -> None:
         plan = {"moves": [{"action": "move", "src": "不存在的.pdf", "dst": "文档/不存在的.pdf"}]}

@@ -18,6 +18,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -208,9 +209,13 @@ def list_dir(ctx: ToolContext, path: str = ".", depth: int = 1) -> Dict[str, Any
 # `engine="auto"` 按候选文件规模切（阈值 5000，估数成本低）。
 # 不把 rg 当默认，是因为真正的默认应该是「本机实测更快的那一个」。
 _RG_AUTO_THRESHOLD = 5000
+# 本机可能自带 rg 的位置（按环境变量动态拼，避免把本机路径写死进仓库）。
+# 2026-10-03 隐私清理：原先是硬编码的绝对路径，公开仓库不该出现本机用户名。
+_LOCALAPPDATA = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
 _RG_CANDIDATES = (
     "rg", "rg.exe",
-    r"C:\Users\匡溯昀\AppData\Local\Programs\Tuanjie Cowork\app\resource\core\bin\win32-x64\rg.exe",
+    os.path.join(_LOCALAPPDATA, "Programs", "Tuanjie Cowork", "app", "resource",
+                 "core", "bin", "win32-x64", "rg.exe"),
 )
 _RG_CACHE: Dict[str, Optional[str]] = {"path": None, "probed": False}  # type: ignore
 
@@ -548,7 +553,12 @@ _S = {"path": {"type": "string"}, "max_lines": {"type": "integer"},
       "glob": {"type": "string"}, "depth": {"type": "integer"},
       "engine": {"type": "string"},
       "test_path": {"type": "string"}, "timeout_sec": {"type": "integer"},
-      "command": {"type": "string"}, "message": {"type": "string"}}
+      "command": {"type": "string"}, "message": {"type": "string"},
+      # 2026-10-03 新增（整理/电脑操作类）
+      "src": {"type": "string"}, "dst": {"type": "string"},
+      "recursive": {"type": "boolean"}, "confirm": {"type": "boolean"},
+      "overwrite": {"type": "boolean"},
+      "content_re": {"type": "string"}, "limit": {"type": "integer"}}
 
 REGISTRY: Dict[str, Dict[str, Any]] = {
     "read_file": _schema("read_file", "读取沙箱内某文件的内容（可只读一段行区间）",
@@ -575,7 +585,234 @@ REGISTRY: Dict[str, Dict[str, Any]] = {
     "run_shell": _schema("run_shell", "执行一条 shell 命令（受危险模式闸控制）",
                          {k: _S[k] for k in ("command",)}, ["command"]),
     "git_commit": _schema("git_commit", "提交当前改动", {k: _S[k] for k in ("message",)}, []),
+    # ---- 整理 / 基础电脑操作类（2026-10-03 新增）----
+    "file_info": _schema("file_info", "查看文件或目录的基本信息（大小/修改时间/类型/条目数）",
+                         {k: _S[k] for k in ("path",)}, ["path"]),
+    "find_files": _schema("find_files", "按文件名正则和/或内容正则查找文件，返回相对路径清单",
+                          {k: _S[k] for k in ("pattern", "content_re", "limit", "path")}, []),
+    "make_dir": _schema("make_dir", "创建目录（含多级父目录）",
+                        {k: _S[k] for k in ("path",)}, ["path"]),
+    "move_file": _schema("move_file", "移动或重命名文件/目录；目标已存在时默认拒绝（overwrite=true 才覆盖）",
+                         {k: _S[k] for k in ("src", "dst", "overwrite")}, ["src", "dst"]),
+    "copy_file": _schema("copy_file", "复制文件/目录；目标已存在时默认拒绝（overwrite=true 才覆盖）",
+                         {k: _S[k] for k in ("src", "dst", "overwrite")}, ["src", "dst"]),
+    "delete_file": _schema(
+        "delete_file",
+        "删除文件或目录（目录需 recursive=true）。★ 安全机制："
+        "第一次调用（不带 confirm）不会删除，只返回 needs_confirm 与预计备份位置；"
+        "必须经人工同意后，带 confirm=true 重新调用才会执行——且执行前会自动备份到 "
+        ".ide-backup/<时间戳>/ 并校验（文件比 sha256、目录比文件数与字节数），校验不过则中止。",
+        {k: _S[k] for k in ("path", "confirm", "recursive")}, ["path"]),
+    "open_path": _schema("open_path", "给出路径在本机文件管理器中的定位方式（返回绝对路径与 reveal 命令，不自行执行）",
+                         {k: _S[k] for k in ("path",)}, ["path"]),
 }
+
+# ============================================================
+# 整理 / 基础电脑操作类工具（2026-10-03 新增）
+#
+# 定位（用户明确的三条）：
+#   ① 基础能力：既能改代码，也能做基础的文件整理类电脑操作；
+#   ② 权限控制：**不给完整权限**——没有通用 shell、没有任意路径，
+#      每个动作都要过 resolve() 的沙箱/白名单（越界即拒）；
+#   ③ 安全机制：删除必须人工同意（confirm=true），且删前自动备份 + 校验。
+#
+# 与 code 链的关系：code 链的 ToolContext 是 write_scope="target_only"，
+# 这些工具天然只能作用于目标文件；整理链用 write_scope="root"（整个根内可动）。
+# ============================================================
+
+def _rel_to_root(ctx: "ToolContext", abs_path: str) -> str:
+    return os.path.relpath(abs_path, ctx.root).replace("\\", "/")
+
+
+def file_info(ctx: "ToolContext", path: str = "") -> Dict[str, Any]:
+    """只读：文件/目录的基本信息。"""
+    p = ctx.resolve(path or ctx.target)
+    if not os.path.exists(p):
+        raise ToolError("路径不存在：%s" % path)
+    st = os.stat(p)
+    info: Dict[str, Any] = {
+        "path": _rel_to_root(ctx, p),
+        "kind": "dir" if os.path.isdir(p) else "file",
+        "bytes": st.st_size,
+        "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+    }
+    if os.path.isdir(p):
+        try:
+            names = os.listdir(p)
+            info["entries"] = len(names)
+            info["sample"] = sorted(names)[:20]
+        except OSError:
+            info["entries"] = None
+    else:
+        info["ext"] = os.path.splitext(p)[1].lower()
+        try:
+            info["sha256"] = "sha256:" + hashlib.sha256(
+                open(p, "rb").read()).hexdigest()
+        except OSError:
+            pass
+    ctx.note("file_info", {"path": path}, True)
+    return {"info": json.dumps(info, ensure_ascii=False, indent=1), **info}
+
+
+def find_files(ctx: "ToolContext", pattern: str = "", content_re: str = "",
+               limit: int = 200, path: str = ".") -> Dict[str, Any]:
+    """只读：按文件名/内容查找（内容查找复用 tidy 的实现，避免两份规则）。"""
+    base = ctx.resolve(path)
+    if not os.path.isdir(base):
+        raise ToolError("不是目录：%s" % path)
+    try:
+        import tidy as _TD  # 同目录模块；CLI/服务两种加载方式下都能找到
+    except Exception:
+        _TD = None
+    if _TD is not None:
+        res = _TD.find_files(base, pattern=pattern or None,
+                             content_re=content_re or None, max_hits=int(limit or 200))
+        # tidy 返回 {"hits": [{"path": <相对 base 的路径>, ...}], ...}
+        pref = os.path.relpath(base, ctx.root).replace("\\", "/")
+        pref = "" if pref in (".", "") else pref + "/"
+        rel = []
+        for f in (res.get("hits") or []):
+            rp = (f or {}).get("path") or ""
+            rel.append(pref + rp if rp else rp)
+        ctx.note("find_files", {"pattern": pattern, "content_re": content_re}, True)
+        return {"hits": "\n".join(rel) if rel else "(无匹配)", "files": rel,
+                "count": len(rel), "truncated": bool(res.get("truncated"))}
+
+    # 兜底：自带一个极简实现（tidy 不可用时）
+    out = []
+    rx = re.compile(pattern) if pattern else None
+    crx = re.compile(content_re) if content_re else None
+    for base_dir, _dirs, files in os.walk(base):
+        for f in files:
+            fp = os.path.join(base_dir, f)
+            if rx and not rx.search(f):
+                continue
+            if crx:
+                try:
+                    if not crx.search(open(fp, encoding="utf-8", errors="ignore").read()):
+                        continue
+                except OSError:
+                    continue
+            out.append(_rel_to_root(ctx, fp))
+            if len(out) >= int(limit or 200):
+                break
+        if len(out) >= int(limit or 200):
+            break
+    ctx.note("find_files", {"pattern": pattern}, True)
+    return {"hits": "\n".join(out) if out else "(无匹配)", "files": out, "count": len(out)}
+
+
+def make_dir(ctx: "ToolContext", path: str = "") -> Dict[str, Any]:
+    p = ctx.resolve(path, for_write=True)
+    if os.path.exists(p) and not os.path.isdir(p):
+        raise ToolError("同名文件已存在：%s" % path)
+    os.makedirs(p, exist_ok=True)
+    ctx.note("make_dir", {"path": path}, True)
+    return {"ok": True, "created": _rel_to_root(ctx, p)}
+
+
+def move_file(ctx: "ToolContext", src: str = "", dst: str = "",
+              overwrite: bool = False) -> Dict[str, Any]:
+    sp = ctx.resolve(src, for_write=True)
+    dp = ctx.resolve(dst, for_write=True)
+    if not os.path.exists(sp):
+        raise ToolError("源不存在：%s" % src)
+    if sp == dp:
+        raise ToolError("源与目标相同")
+    if os.path.exists(dp) and not overwrite:
+        raise ToolError("目标已存在，拒绝覆盖（如需覆盖请传 overwrite=true）：%s" % dst)
+    os.makedirs(os.path.dirname(dp) or ctx.root, exist_ok=True)
+    if os.path.exists(dp) and overwrite:
+        if os.path.isdir(dp):
+            shutil.rmtree(dp)
+        else:
+            os.remove(dp)
+    shutil.move(sp, dp)
+    ctx.note("move_file", {"src": src, "dst": dst}, True)
+    return {"ok": True, "moved": "%s → %s" % (src, dst),
+            "src": _rel_to_root(ctx, sp), "dst": _rel_to_root(ctx, dp)}
+
+
+def copy_file(ctx: "ToolContext", src: str = "", dst: str = "",
+              overwrite: bool = False) -> Dict[str, Any]:
+    sp = ctx.resolve(src, for_write=True)
+    dp = ctx.resolve(dst, for_write=True)
+    if not os.path.exists(sp):
+        raise ToolError("源不存在：%s" % src)
+    if os.path.exists(dp):
+        if not overwrite:
+            raise ToolError("目标已存在，拒绝覆盖（如需覆盖请传 overwrite=true）：%s" % dst)
+        if os.path.isdir(dp):
+            shutil.rmtree(dp)
+        else:
+            os.remove(dp)
+    os.makedirs(os.path.dirname(dp) or ctx.root, exist_ok=True)
+    if os.path.isdir(sp):
+        shutil.copytree(sp, dp)
+    else:
+        shutil.copy2(sp, dp)
+    ctx.note("copy_file", {"src": src, "dst": dst}, True)
+    return {"ok": True, "copied": "%s → %s" % (src, dst),
+            "src": _rel_to_root(ctx, sp), "dst": _rel_to_root(ctx, dp)}
+
+
+def delete_file(ctx: "ToolContext", path: str = "", confirm: bool = False,
+                recursive: bool = False) -> Dict[str, Any]:
+    """★ 危险动作：删除必须人工同意 + 自动备份（用户明确的第 3 条）。
+
+    两段式（借用 apply_patch 的 version 思路）：
+      第一次（confirm 未置）→ 只回 needs_confirm + 预计备份位置，**不动文件**；
+      第二次（confirm=true）→ 先备份到 .ide-backup/ 并校验，通过才删。
+    这两个分支都会写进 ctx.executed，审计里看得见。
+    """
+    import safeops  # 同目录；删除+备份的唯一真相源
+
+    p = ctx.resolve(path, for_write=True)
+    rel = _rel_to_root(ctx, p)
+    if not os.path.exists(p):
+        raise ToolError("要删除的路径不存在：%s" % path)
+
+    if not confirm:
+        ctx.note("delete_file", {"path": path, "confirm": False}, True,
+                 detail="等待人工确认")
+        return {
+            "ok": False, "kind": "needs_confirm", "path": rel,
+            "needs_confirm": True,
+            "detail": "删除需人工同意：确认后请带 confirm=true 重新调用本工具",
+            "will_backup_to": safeops.plan_backup_rel(ctx.root, rel),
+            "is_dir": os.path.isdir(p),
+        }
+
+    try:
+        info = safeops.backup_and_delete(ctx.root, rel, recursive=bool(recursive))
+    except (ValueError, FileNotFoundError, RuntimeError, OSError) as e:
+        # 工具层对外只抛 ToolError（异常类型一致，上层好归类）
+        raise ToolError("删除未执行：%s" % e)
+    ctx.note("delete_file", {"path": path, "confirm": True}, True,
+             detail="已备份并删除 → %s" % info.get("backup"))
+    return {"ok": True, "deleted": rel, "backup": info.get("backup"),
+            "backup_root": safeops.BACKUP_DIRNAME,
+            "kind": info.get("kind"), "bytes": info.get("bytes"),
+            "sha256": info.get("sha256"), "files": info.get("files"),
+            "note": "如需恢复：把备份文件复制回原路径即可（备份在 %s/ 下）"
+                    % safeops.BACKUP_DIRNAME}
+
+
+def open_path(ctx: "ToolContext", path: str = "") -> Dict[str, Any]:
+    """给出「在本机文件管理器里定位」所需的信息——**不自行执行任何外部进程**。
+
+    这样在服务端/沙箱里是纯只读、可测的；「打开」这个动作留给前端
+    （VS Code 扩展用 vscode.commands.executeCommand('revealFileInOS')）。
+    """
+    p = ctx.resolve(path or ctx.root)
+    if not os.path.exists(p):
+        raise ToolError("路径不存在：%s" % path)
+    rel = _rel_to_root(ctx, p)
+    ctx.note("open_path", {"path": path}, True)
+    return {"ok": True, "path": rel, "abs_path": p,
+            "reveal_hint": 'explorer /select,"%s"' % p if os.name == "nt" else "open -R %s" % p,
+            "uri": "file:///" + p.replace("\\", "/")}
+
 
 EXECUTORS = {
     "read_file": read_file,
@@ -586,6 +823,14 @@ EXECUTORS = {
     "run_tests": run_tests,
     "run_shell": run_shell,
     "git_commit": git_commit,
+    # 整理 / 基础电脑操作类（2026-10-03）
+    "file_info": file_info,
+    "find_files": find_files,
+    "make_dir": make_dir,
+    "move_file": move_file,
+    "copy_file": copy_file,
+    "delete_file": delete_file,
+    "open_path": open_path,
 }
 
 
@@ -614,4 +859,22 @@ def result_to_text(res: Dict[str, Any]) -> str:
         return "补丁已应用：%s（%s，+%d/-%d）\n%s" % (res.get("path"), res.get("mode"),
                                                     res.get("added", 0), res.get("removed", 0),
                                                     res.get("diff", "")[:800])
+    # 整理/电脑操作类：给出人能直接读的结果（2026-10-03）
+    if res.get("needs_confirm"):
+        return ("需要人工确认后才能删除：%s\n（预计备份到 %s；确认后带 confirm=true 重新调用）"
+                % (res.get("path"), res.get("will_backup_to")))
+    if "deleted" in res:
+        return ("已删除：%s（备份：%s/%s，%s 字节）"
+                % (res.get("deleted"), res.get("backup_root"), res.get("backup"),
+                   res.get("bytes")))
+    if "moved" in res:
+        return "已移动：%s" % res.get("moved")
+    if "copied" in res:
+        return "已复制：%s" % res.get("copied")
+    if "created" in res:
+        return "已创建目录：%s" % res.get("created")
+    if "info" in res:
+        return res.get("info")
+    if "reveal_hint" in res:
+        return "路径 %s（在本机文件管理器中定位：%s）" % (res.get("path"), res.get("reveal_hint"))
     return json.dumps(res, ensure_ascii=False)[:2000]
