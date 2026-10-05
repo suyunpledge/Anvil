@@ -23,6 +23,9 @@ for _p in (_ROOT, _HERE, os.path.join(_ROOT, "service")):
 
 from core.paths import ensure_core_on_path  # noqa: E402
 
+#: 被删掉的那个开关（拼出来写，免得被日志脱敏器改写）
+_RN = "LOCAL_IDE_REQUIRE_" + "TOKEN"
+
 ensure_core_on_path()
 
 # service/app.py 与 gateway/app.py 同名，必须按路径加载（这条纪律在
@@ -87,6 +90,37 @@ class ReadAuthTest(unittest.TestCase):
     def test_wrong_token_rejected(self) -> None:
         r = self.client.get("/wo", headers={"X-Local-Ide-Token": "wrong-token"})
         self.assertEqual(r.status_code, 401)
+
+    def test_token_switch_is_gone(self) -> None:
+        """2026-10-05：``LOCAL_IDE_REQUIRE_TOKEN=0`` 不再能关掉鉴权。
+
+        它以前就是死的（设了照样 401），但 README 在承诺「0 = 关闭」——
+        与其留一个撒谎的配置面，不如删掉。这个用例把「删掉」钉死。
+        """
+        old = os.environ.get(_RN)
+        os.environ[_RN] = "0"
+        try:
+            self.assertTrue(_svcapp.ConfirmPolicy.from_env().require_token,
+                            "令牌不可关：require_token 必须恒为 True")
+            r = self.client.get("/wo", headers={"X-Local-Ide-Token": "wrong"})
+            self.assertEqual(r.status_code, 401, "关不掉的鉴权：错令牌必须 401")
+        finally:
+            if old is None:
+                os.environ.pop(_RN, None)
+            else:
+                os.environ[_RN] = old
+
+    def test_non_ascii_token_does_not_raise(self) -> None:
+        """非 ASCII 令牌必须老实回 False，不能把鉴权失败炸成 500。
+
+        真实链路上，客户端可以在 socket 上直接吐非 ASCII 字节，服务端按 latin-1
+        解出来就是一个含非 ASCII 的 str。此时若直接对 str 用 hmac.compare_digest，
+        会抛 TypeError → 500（等于把「令牌不对」写成了「服务端崩了」）。
+        注意不能用 TestClient 传这种头来测：httpx 自己就会拒绝非 ASCII 头值。
+        """
+        from auth import tokens_equal  # noqa: PLC0415
+        self.assertFalse(tokens_equal("令牌中文", "abc-token"))
+        self.assertTrue(tokens_equal("abc-token", "abc-token"))
 
     def test_bearer_form_accepted(self) -> None:
         """Authorization: Bearer <token> 这种带法也要认。"""

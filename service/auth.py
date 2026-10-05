@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import hmac
 import os
 import secrets
 from typing import Tuple
@@ -38,6 +39,18 @@ def env_token() -> str:
     return v or issue_token()
 
 
+def tokens_equal(a: str, b: str) -> bool:
+    """常数时间比较令牌（不要用 ``!=``：会按字节短路，泄漏前缀信息）。
+
+    先用 UTF-8 编码成 bytes 再比，是为了容忍非 ASCII 输入——
+    ``hmac.compare_digest`` 对 str 只接受 ASCII，客户端塞个非 ASCII 令牌会抛
+    TypeError 变成 500，而不是老老实实回 401（那是把鉴权失败写成了服务端错误）。
+    本机低危，但一行的事。
+    """
+    return hmac.compare_digest(a.encode("utf-8", "ignore"),
+                              b.encode("utf-8", "ignore"))
+
+
 def extract_token(authorization: str = "", x_local_ide_token: str = "") -> str:
     """从两种头里挑出 token：``Authorization: Bearer ...`` 或 ``X-Local-Ide-Token``。"""
     auth = (authorization or "").strip()
@@ -58,7 +71,7 @@ def require_auth(expected: str, *, what: str):
         x_local_ide_token: str = Header(default=""),
     ) -> None:
         got = extract_token(authorization, x_local_ide_token)
-        if got != expected:
+        if not tokens_equal(got, expected):
             raise HTTPException(
                 status_code=401,
                 detail=f"需要令牌：请在请求头带上 X-Local-Ide-Token（{what}）")
@@ -68,6 +81,6 @@ def require_auth(expected: str, *, what: str):
 def check(expected: str, authorization: str, x_local_ide_token: str) -> Tuple[bool, str]:
     """同步鉴权。返回 (是否通过, 错误信息)；通过时错误信息为空字符串。"""
     got = extract_token(authorization, x_local_ide_token)
-    if got != expected:
+    if not tokens_equal(got, expected):
         return False, "需要令牌：请在请求头带上 X-Local-Ide-Token"
     return True, ""

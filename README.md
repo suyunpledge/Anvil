@@ -40,7 +40,7 @@ restart the editor → a **Local IDE** icon appears on the left.
 | Default | How to change it |
 |---|---|
 | Listens on `127.0.0.1` only | —— |
-| **Writes require a token** (create / confirm / cancel) | `LOCAL_IDE_REQUIRE_TOKEN=0` to turn it off (not recommended) |
+| **Every endpoint except `/health` requires a token** (gateway *and* work-order service) | not switchable: the old `LOCAL_IDE_REQUIRE_TOKEN` off-switch was removed on 2026-10-05 — it never actually worked |
 | **The server forces human confirmation** (a client passing `require_confirm:false` has no effect) | `LOCAL_IDE_REQUIRE_CONFIRM=0` lets the client decide |
 | Working directory unrestricted | `LOCAL_IDE_ALLOWED_ROOTS=D:\proj;E:\other` to narrow it |
 | Test subprocesses run in a clean environment (proxies and credentials dropped, HOME pointed at a temp dir) | `LOCAL_IDE_SANDBOX_STRICT=1` demands real isolation and refuses to run without it |
@@ -97,6 +97,11 @@ Model calls, file reads and writes, and retrieval all stay on this machine.
 | POST | `/v1/chat/completions` | OpenAI shape (`stream` supported; `_task` can additionally pin a route) |
 | POST | `/ollama/api/chat` | Ollama-shape forwarding (used by the state machine, **same profiles and audit**) |
 | GET | `/audit?limit=N` | Most recent call audit records |
+
+All gateway endpoints except `/health` need the token in `X-Local-Ide-Token` (or
+`Authorization: Bearer`). The token is looked up, in order, from `LOCAL_IDE_TOKEN` /
+`LOCAL_LLM_TOKEN`, `.runtime/service-token`, then `.runtime/gateway-token` — so one token
+covers both services.
 
 ### Work-order service (default `127.0.0.1:8090`)
 

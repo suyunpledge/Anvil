@@ -25,6 +25,7 @@ _ROOT = os.path.dirname(_HERE)
 
 SUITES = [
     ("网关单测", ["gateway/tests/test_gateway.py"]),
+    ("网关鉴权（1005 补齐）", ["gateway/tests/test_gateway_auth.py"]),
     ("上下文层单测", ["context/tests/test_context.py"]),
     ("工单服务单测", ["service/tests/test_service.py"]),
     ("安全回归（审查 7 条）", ["service/tests/test_security_fixes.py"]),

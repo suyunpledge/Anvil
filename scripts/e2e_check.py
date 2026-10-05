@@ -313,7 +313,8 @@ def main(argv=None) -> int:
                  "模型两次都未跑成待确认；该防护另有 2 条离线单测覆盖")
 
         print("\n— 审计 —")
-        code, aud = http("http://127.0.0.1:%d/audit?limit=50" % GW_PORT, timeout=30)
+        code, aud = http("http://127.0.0.1:%d/audit?limit=50" % GW_PORT, timeout=30,
+                         token=TOKEN)     # 2026-10-05 起网关也要令牌
         entries = (aud or {}).get("entries") if isinstance(aud, dict) else None
         res("审计有本轮记录", bool(entries), "共 %d 条" % (len(entries or [])))
         think_note = any(e.get("stripped_think") for e in (entries or []))

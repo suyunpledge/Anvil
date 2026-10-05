@@ -115,8 +115,9 @@ function cfg() {
   };
 }
 
-// ★ 服务端写操作需要令牌（外部审查 #2：不能让任何本机程序都能驱动模型改文件）。
-//   令牌由服务启动时生成，写到 <项目>/.runtime/service-token；
+// ★ 两个服务都要令牌（外部审查 #2：不能让任何本机程序都能驱动模型改文件；
+//   2026-10-05 起网关也补齐了同口径鉴权，此前它裸奔）。
+//   令牌由服务/网关启动时生成，写到 <项目>/.runtime/service-token（或 gateway-token）；
 //   这里缓存一份，401 时清缓存重读（服务重启会换新令牌）。
 let TOKEN_CACHE = null;
 function loadToken() {
@@ -126,8 +127,10 @@ function loadToken() {
   const roots = (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath);
   const cands = [];
   for (const r of roots) {
-    cands.push(path.join(r, '.runtime', 'service-token'));
-    cands.push(path.join(r, '..', 'local-model-ide-app', '.runtime', 'service-token'));
+    for (const name of ['service-token', 'gateway-token']) {
+      cands.push(path.join(r, '.runtime', name));
+      cands.push(path.join(r, '..', 'local-model-ide-app', '.runtime', name));
+    }
   }
   for (const p of cands) {
     try {
@@ -448,7 +451,7 @@ const Commands = {
       ]
     };
     try {
-      const r = await request(`${gateway}/v1/chat/completions`, { method: 'POST', body });
+      const r = await authed(`${gateway}/v1/chat/completions`, { method: 'POST', body });
       const out = (r.json && r.json.choices && r.json.choices[0].message.content) || r.text;
       const doc = await vscode.workspace.openTextDocument({ content: out, language: 'markdown' });
       await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
@@ -526,7 +529,7 @@ const Commands = {
   async showAudit() {
     const { gateway } = cfg();
     try {
-      const r = await request(`${gateway}/audit?limit=200`, { timeout: 30000 });
+      const r = await authed(`${gateway}/audit?limit=200`, { timeout: 30000 });
       const entries = (r.json && r.json.entries) || [];
       const rows = entries.map((e) =>
         `${e.ts}  ${e.model || ''}  ${e.kind}  ${e.sec}s  画像=${e.profile || '-'}` +

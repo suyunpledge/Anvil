@@ -40,7 +40,7 @@ VS Code 里用：把 `extension/` 复制或软链到 `~/.vscode/extensions/local
 | 默认行为 | 怎么改 |
 |---|---|
 | 只监听 `127.0.0.1` | —— |
-| **写操作要令牌**（建单/确认/取消） | `LOCAL_IDE_REQUIRE_TOKEN=0` 关闭（不推荐） |
+| **除 `/health` 外所有端点都要令牌**（网关与工单服务同口径） | 不可关：旧的 `LOCAL_IDE_REQUIRE_TOKEN` 开关已于 2026-10-05 移除——它从来没真正生效过 |
 | **服务端强制人确认**（客户端传 `require_confirm:false` 无效） | `LOCAL_IDE_REQUIRE_CONFIRM=0` 允许客户端决定 |
 | 工作目录不限 | `LOCAL_IDE_ALLOWED_ROOTS=D:\proj;E:\other` 限定范围 |
 | 测试子进程用干净环境（丢代理/凭据，HOME 指向临时目录） | `LOCAL_IDE_SANDBOX_STRICT=1` 要求真隔离，拿不到就拒跑 |
@@ -97,6 +97,10 @@ VS Code 扩展 ──HTTP/SSE──▶ 工单服务 ──▶ 工单状态机（
 | POST | `/v1/chat/completions` | OpenAI 形态（支持 `stream`；额外支持 `_task` 指定路由） |
 | POST | `/ollama/api/chat` | Ollama 形态转发（供状态机使用，**同一套画像与审计**） |
 | GET | `/audit?limit=N` | 最近的调用审计 |
+
+网关除 `/health` 外的端点都需要令牌：`X-Local-Ide-Token: <token>`（或
+`Authorization: Bearer <token>`）。令牌按顺序从 `LOCAL_IDE_TOKEN` / `LOCAL_LLM_TOKEN`
+环境变量、`.runtime/service-token`、`.runtime/gateway-token` 里找——一个令牌覆盖两个服务。
 
 ### 工单服务（默认 `127.0.0.1:8090`）
 

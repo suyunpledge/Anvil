@@ -40,7 +40,7 @@ ensure_core_on_path()
 
 from runner import (RunnerOpts, RunnerRegistry, STATUS_AWAITING_CONFIRM,  # noqa: E402
                     STATUS_RUNNING, list_presets)
-from auth import env_token, require_auth, extract_token  # noqa: E402
+from auth import env_token, require_auth  # noqa: E402
 
 # ★ FastAPI 导入放模块顶层：见 gateway/app.py 里同一处的注释（注解字符串化的坑）
 try:
@@ -89,8 +89,15 @@ class ConfirmPolicy:
         0        = 允许客户端自己决定（仅建议在完全可信的本机环境下用）
     ``LOCAL_IDE_ALLOWED_ROOTS``
         允许操作的工作目录根，多个用 ``;`` 分隔；不设则不限制。
-    ``LOCAL_IDE_REQUIRE_TOKEN``
-        1（默认）= 写操作要读 + 读口（除 health/presets 外）也要读；0 = 关闭（不推荐）
+    令牌不可关（2026-10-05）
+        历史上这里有一个 ``LOCAL_IDE_REQUIRE_TOKEN`` 开关，README 也承诺「0 = 关闭（不推荐）」。
+        但 2026-09-30 补齐读口鉴权后，所有需要保护的端点都无条件挂 ``READ_AUTH``，
+        那个开关事实上是**死的**：把它设成 0，错误令牌照样回 401，等于文档在承诺一个
+        不存在的功能。
+        本机单用户工具，令牌启动时生成、写在 ``.runtime/service-token``，成本≈0；
+        而本仓自己的交接记录里写着「别再让读口不鉴权复活」。所以处理方式是**删掉开关**
+        而不是给它接线 —— 少一个配置面，就少一处失真。
+        ``require_token`` 字段保留（恒 True）——``/health`` 与既有回归都在读它。
     """
 
     def __init__(self, force_confirm: bool, allowed_roots: List[str], require_token: bool) -> None:
@@ -102,8 +109,8 @@ class ConfirmPolicy:
     def from_env(cls) -> "ConfirmPolicy":
         force = os.environ.get("LOCAL_IDE_REQUIRE_CONFIRM", "1") != "0"
         roots = [p for p in (os.environ.get("LOCAL_IDE_ALLOWED_ROOTS", "") or "").split(";") if p.strip()]
-        token = os.environ.get("LOCAL_IDE_REQUIRE_TOKEN", "1") != "0"
-        return cls(force, roots, token)
+        # 令牌不可关：见类文档（2026-10-05 删掉了那个从未生效的 off-switch）。恒 True。
+        return cls(force, roots, True)
 
     def effective_confirm(self, client_wants: bool, allow_delete: bool = False) -> bool:
         """策略优先：要确认时必须确认。
@@ -202,19 +209,9 @@ def build_app():
     # 工单内文——所以 2026-09-30 补齐：不再口头豁免。
     READ_AUTH = require_auth(token, what="查询接口")
 
-    def _write_auth(request: Request) -> Optional[JSONResponse]:
-        """写操作鉴权同步检查（与 READ_AUTH 同口径，留着便于细粒度时点）。"""
-        if not policy.require_token:
-            return None
-        auth = request.headers.get("authorization") or ""
-        x = request.headers.get("x-local-ide-token") or ""
-        got = extract_token(auth, x)
-        if got != token:
-            return JSONResponse(status_code=401,
-                                content={"error": "需要令牌：请在请求头带上 "
-                                                   "X-Local-Ide-Token（令牌见 .runtime/service-token）"})
-        return None
-
+    # 2026-10-05 删除：_write_auth 曾是实现「按策略开关鉴权」的地方，但它从未被任何
+    # 路由引用（读口与写口统一挂 READ_AUTH），是死代码，也是上面那个开关"看起来存在"
+    # 的由来。删掉它，`LOCAL_IDE_REQUIRE_TOKEN` 这整条线就干净了。
     @app.get("/health")
     def health() -> Dict[str, Any]:
         return {"ok": True, "core": version(),

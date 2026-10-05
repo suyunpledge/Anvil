@@ -62,9 +62,19 @@ class SandboxEnvTest(unittest.TestCase):
         self.assertEqual(env.get("LOCAL_IDE_SANDBOX"), "1")
 
     def test_keeps_python_runnable(self) -> None:
+        """保留集要「够 Python 跑起来」——但「够」是分平台的。
+
+        2026-10-05 修：原来硬断言 SystemRoot/SYSTEMROOT 存在，那是 Windows 专有的；
+        在 Linux（CI 的 ubuntu runner）上它必然不存在，于是这一条恒红——
+        挡住的不是产品缺陷，是测试自己。改成按平台验各自的关键变量。
+        """
         env = SB.sanitized_env()
         self.assertIn("PATH", env)          # 丢了 PATH 子进程起不来
-        self.assertTrue(env.get("SystemRoot") or env.get("SYSTEMROOT"))
+        if os.name == "nt":
+            self.assertTrue(env.get("SystemRoot") or env.get("SYSTEMROOT"))
+        else:
+            # POSIX：起子进程不依赖 SystemRoot；关键是 HOME 被指向隔离目录
+            self.assertTrue(env.get("HOME"), "POSIX 下 HOME 必须在（且指向隔离目录）")
 
     def test_os_isolation_honestly_reported(self) -> None:
         """★ 不许假装有沙箱：有就报有（并说明手段），没有就报没有（并说明原因）。

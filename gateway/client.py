@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional, Tuple
@@ -24,6 +25,31 @@ from typing import Any, Dict, Optional, Tuple
 
 class GatewayUnavailable(RuntimeError):
     """网关不可达。/ 用于 fail-fast 提示，而不是静默退回直连。"""
+
+
+def local_token() -> str:
+    """找本机令牌：环境变量 → .runtime/service-token → .runtime/gateway-token。
+
+    网关自 2026-10-05 起要求令牌（除 /health）。顺序与网关 accepted_tokens() 对齐，
+    这样状态机不用额外配一处；找不到就返回空串（网关会回 401，错误里写明去哪拿）。
+    """
+    for k in ("LOCAL_IDE_TOKEN", "LOCAL_LLM_TOKEN"):
+        v = (os.environ.get(k) or "").strip()
+        if v:
+            return v
+    try:
+        from core.paths import runtime_path
+    except Exception:                                # noqa: BLE001
+        return ""
+    for name in ("service-token", "gateway-token"):
+        try:
+            with open(runtime_path(name), encoding="utf-8") as f:
+                v = f.read().strip()
+            if v:
+                return v
+        except OSError:
+            continue
+    return ""
 
 
 class GatewayTransport:
@@ -39,9 +65,13 @@ class GatewayTransport:
 
     # ---------------- 形状对齐 ----------------
     def _post(self, path: str, payload: Dict[str, Any], timeout: Optional[float]) -> Dict[str, Any]:
+        headers = {"Content-Type": "application/json"}
+        tok = local_token()
+        if tok:
+            headers["X-Local-Ide-Token"] = tok
         req = urllib.request.Request(
             self.base + path, data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"})
+            headers=headers)
         try:
             with self._opener.open(req, timeout=timeout or self.timeout) as r:
                 return json.loads(r.read().decode("utf-8"))
@@ -68,7 +98,11 @@ class GatewayTransport:
 
     def list_models(self) -> Dict[str, Any]:
         try:
-            req = urllib.request.Request(self.base + "/v1/models")
+            headers = {}
+            tok = local_token()
+            if tok:
+                headers["X-Local-Ide-Token"] = tok
+            req = urllib.request.Request(self.base + "/v1/models", headers=headers)
             with self._opener.open(req, timeout=15) as r:
                 data = json.loads(r.read().decode("utf-8"))
             names = [{"name": m.get("id")} for m in data.get("data", [])]

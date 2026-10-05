@@ -11,6 +11,8 @@
      收到 think 会直接 HTTP 400）在这里就把键摘掉。调用方不必知道哪个模型有哪个脾气；
   3. 每次调用写一行审计（`audit.jsonl`）：时间 / 模型 / 耗时 / 画像 / 是否摘过 think / token 估算；
   4. **出网熔断**：只允许 loopback 与内网段；启动自检外连，命中即拒绝启动。
+  5. **鉴权**（2026-10-05 补齐）：除 `/health` 外都要令牌，口径与工单服务一致
+     （`X-Local-Ide-Token` 或 `Authorization: Bearer`）。
 
 跑法：
     python gateway/app.py                      # 127.0.0.1:8080
@@ -30,7 +32,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
@@ -41,17 +43,24 @@ from core.paths import ensure_core_on_path, runtime_path, version  # noqa: E402
 
 ensure_core_on_path()
 
+# ★ 鉴权原语复用服务侧（service/auth.py）：口径只有一处，避免两边慢慢长歪。
+#   缺 fastapi 时（--selfcheck 路径）导入失败属预期——那种模式下不起 app，也用不到鉴权。
+try:
+    from service.auth import extract_token, issue_token, tokens_equal
+except Exception:                                    # noqa: BLE001
+    extract_token = issue_token = tokens_equal = None  # type: ignore
+
 # ★ FastAPI 的导入必须在**模块顶层**：
 #   本文件有 `from __future__ import annotations`，注解会变成字符串，
 #   FastAPI 再把字符串拿到模块全局命名空间去解析类型。若把 Request 写在函数内部导入，
 #   全局没有这个名字，FastAPI 会把它当作**查询参数**，于是所有 POST 都回 422
 #   （`loc:["query","request"]`）——这个坑 2026-09-28 实测踩到过。
 try:
-    from fastapi import FastAPI, Request
+    from fastapi import Depends, FastAPI, Header, HTTPException, Request
     from fastapi.responses import JSONResponse, StreamingResponse
     _FASTAPI_OK = True
 except Exception:                                    # 仅 --selfcheck 与纯逻辑测试时允许缺依赖
-    FastAPI = Request = object                       # type: ignore
+    Depends = FastAPI = Header = HTTPException = Request = object   # type: ignore
     JSONResponse = StreamingResponse = object        # type: ignore
     _FASTAPI_OK = False
 
@@ -73,6 +82,59 @@ ALLOWED_NETS = (
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
 )
+
+# ============================================================
+# 鉴权（2026-10-05 补齐）
+# ============================================================
+# 起因：工单服务（service/）自 09-30 起有令牌体系，而**模型唯一出口**的网关却完全
+# 裸奔——/audit、/v1/models、/v1/chat/completions、/ollama/api/chat 任何本机进程
+# 都能随便打。Ollama 本身也没有鉴权，所以威胁模型并没有变差；真正的问题是**不对称**：
+# 一边在加固、另一边留门，而交接文档与扩展代码（它早就写着「/health 是唯一免鉴权
+# 端点」）本来就是按「两个服务同一个口径」理解的。这里把口径补齐。
+#
+# 令牌来源（任一命中即可，方便两个服务共用同一个令牌）：
+#   · 环境变量 LOCAL_IDE_TOKEN / LOCAL_LLM_TOKEN
+#   · .runtime/service-token（工单服务启动时写的）
+#   · .runtime/gateway-token（本网关启动时写的，服务没起时的兜底）
+GW_TOKEN_NAME = "gateway-token"
+
+
+def _read_token_file(name: str) -> str:
+    try:
+        with open(runtime_path(name), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def accepted_tokens() -> List[str]:
+    """当前可接受的令牌。每次请求现算——服务可能比网关起得晚，缓存会把刚写的令牌漏掉。"""
+    toks = [(os.environ.get(k) or "").strip()
+            for k in ("LOCAL_IDE_TOKEN", "LOCAL_LLM_TOKEN")]
+    toks += [_read_token_file("service-token"), _read_token_file(GW_TOKEN_NAME)]
+    return sorted({t for t in toks if t})
+
+
+def ensure_gateway_token() -> str:
+    """保证运行时目录里有一个可用令牌文件；返回当前生效的令牌（用于日志/自检）。"""
+    toks = accepted_tokens()
+    if toks:
+        return toks[0]
+    tok = issue_token() if issue_token else ""
+    if not tok:
+        return ""
+    try:
+        p = runtime_path(GW_TOKEN_NAME)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(tok)
+        try:
+            os.chmod(p, 0o600)
+        except OSError:
+            pass
+    except OSError:
+        pass
+    return tok
+
 
 #: 任务类型 → 首选模型（一期初版；基准数字出来后再按数据改）
 ROUTES: Dict[str, str] = {
@@ -317,8 +379,26 @@ def build_app():
         raise SystemExit("未找到 fastapi；请用带 fastapi/uvicorn 的解释器运行"
                          "（本机 AutoClaw 内嵌 python 自带）")
 
-    app = FastAPI(title="Local Model Gateway", version="0.2.0")
+    app = FastAPI(title="Local Model Gateway", version="0.2.1")
     PROFILES = load_profiles()
+
+    # ------------------------------------------------------------------
+    # 鉴权：除 /health 外都要令牌（与工单服务同口径）
+    # ------------------------------------------------------------------
+    # 定义在 build_app 内部而不是模块级：模块级在缺 fastapi 的 --selfcheck
+    # 模式下也要能 import（那时 Header/Depends 是 object，写成默认值会直接炸）。
+    ensure_gateway_token()
+
+    async def _require_token(authorization: str = Header(default=""),
+                             x_local_ide_token: str = Header(default="")) -> None:
+        got = extract_token(authorization, x_local_ide_token)  # type: ignore[misc]
+        if not any(tokens_equal(got, t) for t in accepted_tokens()):  # type: ignore[misc]
+            raise HTTPException(
+                status_code=401,
+                detail="需要令牌：请在请求头带上 X-Local-Ide-Token"
+                       "（令牌见 .runtime/gateway-token 或 .runtime/service-token）")
+
+    READ_AUTH = Depends(_require_token)
 
     @app.get("/health")
     def health() -> Dict[str, Any]:
@@ -327,16 +407,20 @@ def build_app():
         return {"ok": code == 200 and sc["ok"], "ollama": code == 200,
                 "outbound_block": sc["ok"], "profiles": len(PROFILES.get("by_key", {})),
                 "models": len((tags or {}).get("models", [])),
-                "audit_path": AUDIT_PATH, "core": version()}
+                "audit_path": AUDIT_PATH, "core": version(),
+                # /health 是唯一免鉴权端点，所以这里只说「要令牌」与去哪找，不回令牌本身
+                "auth": {"token_required": True,
+                         "token_files": [runtime_path("gateway-token"),
+                                         runtime_path("service-token")]}}
 
-    @app.get("/v1/models")
+    @app.get("/v1/models", dependencies=[READ_AUTH])
     def models() -> Dict[str, Any]:
         code, tags = get_ollama("/api/tags")
         return {"object": "list",
                 "data": [{"id": m.get("name"), "object": "model", "owned_by": "local"}
                          for m in (tags or {}).get("models", [])]}
 
-    @app.get("/audit")
+    @app.get("/audit", dependencies=[READ_AUTH])
     def audit_view(limit: int = 50) -> Dict[str, Any]:
         return {"path": AUDIT_PATH, "entries": read_audit(limit)}
 
@@ -347,7 +431,7 @@ def build_app():
     # 只要它直连 Ollama，画像、审计、熔断这三件事就全被绕过了。
     # 所以网关额外开一个同形状的入口：收 Ollama 请求体 → 跑同一套画像修正与审计
     # → 转发 → 原样回 Ollama 应答。这样调用方不心改一行，出口却只有这一个。
-    @app.post("/ollama/api/chat")
+    @app.post("/ollama/api/chat", dependencies=[READ_AUTH])
     async def ollama_passthrough(request: Request):
         body = await request.json()
         model = body.get("model") or ROUTES["fallback"]
@@ -369,7 +453,7 @@ def build_app():
                                 content={"error": resp.get("error", "upstream failed")})
         return resp
 
-    @app.post("/v1/chat/completions")
+    @app.post("/v1/chat/completions", dependencies=[READ_AUTH])
     async def chat(request: Request):
         body = await request.json()
         task = body.pop("_task", None)              # 非标准字段：仅供路由
