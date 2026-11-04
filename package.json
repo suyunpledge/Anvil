@@ -1,0 +1,33 @@
+{
+  "name": "anvil-ide",
+  "version": "0.1.0",
+  "description": "Anvil IDE — VSCode 开源编辑器内核(Monaco) + 自研中文界面 + Anvil 本地模型编码代理",
+  "main": "./out/main/index.js",
+  "author": "ku-suyun",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "monaco-editor": "^0.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron": "^33.2.0",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "electron": true
+  }
+}

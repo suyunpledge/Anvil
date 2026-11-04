@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'"
+  />
+  <title>Anvil IDE</title>
+</head>
+<body>
+  <div id="app">
+    <!-- 标题栏（右侧为系统原生窗口按钮，内容避开右侧 150px） -->
+    <header id="titlebar">
+      <div class="brand">⚒ 铁砧 IDE</div>
+      <div id="title-folder" class="title-folder">未打开文件夹</div>
+      <div class="titlebar-spacer"></div>
+    </header>
+
+    <!-- 工具栏 -->
+    <div id="toolbar">
+      <button id="btn-open" class="tb-btn" title="打开一个代码文件夹">📂 打开文件夹</button>
+      <button id="btn-openfile" class="tb-btn" title="直接打开单个代码文件（也可以把文件直接拖进窗口）">📂 打开文件</button>
+      <button id="btn-newfile" class="tb-btn" title="在当前文件夹新建文件">📄 新建文件</button>
+      <div class="tb-sep"></div>
+      <button id="btn-run" class="run-btn" title="保存并编译运行当前文件 (F5)">
+        ▶ 运行 <span class="run-key">F5</span>
+      </button>
+      <button id="btn-stop" class="tb-btn stop" title="结束正在运行的程序" disabled>■ 停止</button>
+      <div class="tb-sep"></div>
+      <span id="lang-badge" class="lang-badge" title="当前文件类型">—</span>
+      <div class="tb-spacer"></div>
+      <span id="anvil-dot" class="anvil-dot off" title="Anvil 本地模型服务状态">● Anvil</span>
+    </div>
+
+    <!-- 主区域 -->
+    <div id="main">
+      <aside id="sidebar">
+        <div id="side-tabs">
+          <button class="side-tab active" data-pane="files">文件</button>
+          <button class="side-tab" data-pane="anvil">Anvil</button>
+        </div>
+        <div id="pane-files" class="side-pane active">
+          <div id="file-tree" class="file-tree"><div class="hint">点击上方「打开文件夹」<br />选择你的代码文件夹</div></div>
+        </div>
+        <div id="pane-anvil" class="side-pane"></div>
+      </aside>
+
+      <section id="editor-col">
+        <div id="tabstrip" class="empty"></div>
+        <div id="editor-host">
+          <div id="editor"></div>
+          <div id="welcome" class="welcome">
+            <div class="w-logo">⚒</div>
+            <h1>铁砧 IDE</h1>
+            <p>好上手的本地代码编辑器 · 内置 Anvil 智能助手与本地模型</p>
+            <div class="w-actions">
+              <button id="w-open" class="big-btn">📂 打开文件夹</button>
+              <button id="w-openfile" class="big-btn">📄 打开文件</button>
+            </div>
+            <div class="w-tips">
+              <div>F5 或点「▶ 运行」一键编译运行（自动识别 C / C++ / Python / JS）</div>
+              <div>也可以把文件或文件夹直接拖进窗口，导入即可运行</div>
+            </div>
+            <div id="w-recent" class="w-recent"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 输出控制台 -->
+    <div id="console-wrap" class="collapsed">
+      <div id="console-head">
+        <div id="panel-tabs">
+          <button class="ptab active" data-panel="out">输出</button>
+          <button class="ptab" data-panel="term">终端</button>
+        </div>
+        <span id="console-state"></span>
+        <div class="spacer"></div>
+        <button id="console-clear" class="mini-btn" title="清空输出">清空</button>
+        <button id="console-toggle" class="mini-btn" title="收起 / 展开">▼</button>
+      </div>
+      <div id="console-body">
+        <div id="console-out" class="console-out"><div class="hint">运行结果会显示在这里</div></div>
+        <div id="console-input-row">
+          <span class="ci-label">输入</span>
+          <input id="console-input" type="text" placeholder="程序等待输入时在这里输入，回车发送（scanf / input 会收到）" />
+          <button id="console-send" class="mini-btn">发送</button>
+        </div>
+      </div>
+      <div id="term-body">
+        <div id="terminal"></div>
+        <div class="term-hint">终端就绪中…</div>
+      </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <footer id="statusbar">
+      <span id="st-compiler">编译器：探测中…</span>
+      <span id="st-anvil">Anvil：未连接</span>
+      <div class="spacer"></div>
+      <span id="st-cursor">行 1，列 1</span>
+      <span id="st-encoding">UTF-8</span>
+    </footer>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
