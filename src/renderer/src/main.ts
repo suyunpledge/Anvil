@@ -110,12 +110,7 @@ function attachListeners(): void {
       showPanel(termActive ? 'out' : 'term')
     }
   })
-
-  })
 }
-
-// 欢迎页最近列表
-function buildWelcomeRecents(): void {
 
 // 导入单个路径：文件夹 → 展开文件树；文件 → 直接开标签（当场可运行）
 async function importFile(p: string): Promise<void> {
@@ -129,6 +124,7 @@ async function importFile(p: string): Promise<void> {
   }
 }
 
+// 欢迎页最近列表
 function buildWelcomeRecents(): void {
   const box = $('w-recent')
   box.innerHTML = ''
