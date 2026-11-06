@@ -10,6 +10,19 @@ import type { OutChunk, ExitInfo } from '../shared/types'
 
 let win: BrowserWindow | null = null
 
+// 单实例：重复双击快捷方式时把已有窗口拉到前台
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
+  })
+}
+
 function createWindow(): void {
   win = new BrowserWindow({
     width: 1280,
@@ -19,6 +32,7 @@ function createWindow(): void {
     show: false,
     backgroundColor: '#1b1e26',
     title: 'Anvil IDE',
+    icon: path.join(__dirname, '../../resources/icon.ico'),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#20242e', symbolColor: '#e8eaf0', height: 38 },
     webPreferences: {
@@ -66,6 +80,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   anvil.shutdown()
+  runner.shutdownAll()
   term.shutdownAll()
 })
 
@@ -88,7 +103,7 @@ function registerIpc(): void {
     const r = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: [
-        { name: '程序文件', extensions: ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'py', 'js', 'ts', 'json', 'md', 'txt'] },
+        { name: '程序文件', extensions: ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'py', 'java', 'js', 'ts', 'json', 'md', 'txt'] },
         { name: '所有文件', extensions: ['*'] }
       ]
     })
@@ -97,9 +112,9 @@ function registerIpc(): void {
     return r.filePaths[0]
   })
 
-  ipcMain.handle('fs:isdir', (_e, p: string) => {
+  ipcMain.handle('fs:isdir', async (_e, p: string) => {
     try {
-      return fs.statSync(p).isDirectory()
+      return (await fs.promises.stat(p)).isDirectory()
     } catch {
       return false
     }
@@ -111,16 +126,16 @@ function registerIpc(): void {
 
   ipcMain.handle('fs:list', (_e, dir: string) => fsSvc.listDir(dir))
   ipcMain.handle('fs:read', (_e, p: string) => fsSvc.readFileSmart(p))
-  ipcMain.handle('fs:write', (_e, p: string, text: string) => {
-    fsSvc.writeFileSmart(p, text)
+  ipcMain.handle('fs:write', async (_e, p: string, text: string) => {
+    await fsSvc.writeFileSmart(p, text)
     return true
   })
   ipcMain.handle('fs:create', (_e, parent: string, name: string, isDir: boolean) =>
     fsSvc.createEntry(parent, name, isDir)
   )
   ipcMain.handle('fs:rename', (_e, oldPath: string, newName: string) => fsSvc.renameEntry(oldPath, newName))
-  ipcMain.handle('fs:delete', (_e, target: string) => {
-    fsSvc.deleteEntry(target)
+  ipcMain.handle('fs:delete', async (_e, target: string) => {
+    await fsSvc.deleteEntry(target)
     return true
   })
 

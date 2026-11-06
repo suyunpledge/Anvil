@@ -1,251 +1,163 @@
-import { spawn, ChildProcess } from 'node:child_process'
-import fs from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
+import fs from 'node:fs/promises'
 import path from 'node:path'
-import http from 'node:http'
+import { setTimeout as delay } from 'node:timers/promises'
 import type { AnvilStatus, ApiResponse } from '../shared/types'
 import { loadSettings } from './settings'
-
-// —— Anvil 后端宿主：健康检查、按需拉起 anvil.py、带令牌的 API 代理、SSE 转发 ——
+import { BackendClient, type BackendLocation } from './anvil-client'
+import { WorkOrderSubscription } from './anvil-events'
+import { stopProcess } from './process-host'
 
 type Win = import('electron').BrowserWindow | null
+type StartResult = { ok: boolean; error?: string }
 
-let startedByUs = false
-let child: ChildProcess | null = null
-let tokenCache: string | null = null
-let adaptersCache: AnvilStatus['adapters'] = []
-let integrationsCache: Record<string, unknown> | null = null
+/** 生命周期、协议传输和事件订阅分层；并发调用共享进行中的启动与探测。 */
+export class AnvilHost {
+  readonly client: BackendClient
+  private child: ChildProcess | null = null
+  private starting: Promise<StartResult> | null = null
+  private checking: Promise<AnvilStatus> | null = null
+  private refreshing: Promise<void> | null = null
+  private stop = new AbortController()
+  private adapters: AnvilStatus['adapters'] = []
+  private integrations: Record<string, unknown> | null = null
+  private metaAt = 0
+  private watches = new Map<string, WorkOrderSubscription>()
 
-function base(): string {
-  const s = loadSettings()
-  return `http://127.0.0.1:${s.anvilPort}`
-}
-
-function token(): string | null {
-  if (tokenCache) return tokenCache
-  try {
-    const s = loadSettings()
-    const p = path.join(s.anvilRepo, '.runtime', 'service-token')
-    if (fs.existsSync(p)) {
-      tokenCache = fs.readFileSync(p, 'utf-8').trim()
-      return tokenCache
-    }
-  } catch {
-    /* 读不到令牌就走无令牌请求，后端会返回 401 */
+  constructor(private settings: () => BackendLocation = loadSettings,
+    private spawnBackend: typeof spawn = spawn, private startupMs = 90000) {
+    this.client = new BackendClient(settings)
   }
-  return null
-}
 
-export function request<T = unknown>(
-  method: string,
-  urlPath: string,
-  body?: unknown,
-  timeoutMs = 15000
-): Promise<ApiResponse<T>> {
-  return new Promise((resolve) => {
-    const payload = body === undefined ? null : JSON.stringify(body)
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'Cache-Control': 'no-store'
-    }
-    if (payload) headers['Content-Type'] = 'application/json'
-    if (token()) {
-      headers['X-Local-Ide-Token'] = token() as string
-      headers.Authorization = `Bearer ${token()}`
-    }
-    const req = http.request(
-      base() + urlPath,
-      { method, headers, timeout: timeoutMs },
-      (res) => {
-        let raw = ''
-        res.setEncoding('utf-8')
-        res.on('data', (d) => (raw += d))
-        res.on('end', () => {
-          let data: unknown = null
-          try {
-            data = raw ? JSON.parse(raw) : null
-          } catch {
-            data = raw
-          }
-          resolve({ status: res.statusCode ?? 0, data: data as T })
-        })
-      }
-    )
-    req.on('timeout', () => {
-      req.destroy()
-      resolve({ status: 0, data: null, error: 'timeout' })
-    })
-    req.on('error', (e) => resolve({ status: 0, data: null, error: String(e) }))
-    if (payload) req.write(payload)
-    req.end()
-  })
-}
-
-export async function health(): Promise<boolean> {
-  const r = await request('GET', '/health', undefined, 3000)
-  return r.status === 200
-}
-
-export async function startBackend(): Promise<{ ok: boolean; error?: string }> {
-  if (await health()) return { ok: true }
-  const s = loadSettings()
-  const py = path.join(s.anvilRepo, '.venv', 'Scripts', 'python.exe')
-  const pythonExe = fs.existsSync(py) ? py : 'python'
-  if (!fs.existsSync(path.join(s.anvilRepo, 'anvil.py'))) {
-    return { ok: false, error: `Anvil 仓库不存在：${s.anvilRepo}` }
+  request<T = unknown>(method: string, urlPath: string, body?: unknown, timeoutMs = 15000): Promise<ApiResponse<T>> {
+    return this.client.request<T>(method, urlPath, body, timeoutMs)
   }
-  return new Promise((resolve) => {
+
+  private async probe(timeout = 3000): Promise<Record<string, unknown> | null> {
+    const response = await this.request<Record<string, unknown>>('GET', '/health', undefined, timeout)
+    const data = response.data
+    return response.status === 200 && data?.ok === true && 'wos' in data && 'core' in data ? data : null
+  }
+
+  async health(): Promise<boolean> { return Boolean(await this.probe()) }
+
+  startBackend(): Promise<StartResult> {
+    if (!this.starting) this.starting = this.launch().finally(() => { this.starting = null })
+    return this.starting
+  }
+
+  private async launch(): Promise<StartResult> {
+    if (this.stop.signal.aborted) return { ok: false, error: '宿主已关闭' }
+    if (await this.health()) return { ok: true }
+    if (this.child) return { ok: false, error: '上一次启动的后端进程尚未退出' }
+    const settings = this.settings()
+    let stderr = ''
+    let failure = ''
+    let proc: ChildProcess | null = null
     try {
-      child = spawn(pythonExe, ['anvil.py'], {
-        cwd: s.anvilRepo,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      await fs.access(path.join(settings.anvilRepo, 'anvil.py'))
+      const python = path.join(settings.anvilRepo, '.venv', 'Scripts', 'python.exe')
+      await fs.access(python)
+      if (this.stop.signal.aborted) return { ok: false, error: '宿主已关闭' }
+      proc = this.spawnBackend(python, ['anvil.py', '--port', String(settings.anvilPort)], {
+        cwd: settings.anvilRepo, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
       })
-      startedByUs = true
-      child.stderr?.on('data', (b) => console.error('[anvil]', String(b).trim()))
-      child.on('error', (e) => resolve({ ok: false, error: String(e) }))
-      child.on('exit', () => {
-        child = null
+      this.child = proc
+      proc.stdout?.resume()
+      proc.stderr?.on('data', (chunk) => { stderr = (stderr + String(chunk)).slice(-4000) })
+      proc.on('error', (error) => { failure = String(error); if (this.child === proc) this.child = null })
+      proc.on('exit', (code) => {
+        failure ||= `Anvil 已退出（${code}）${stderr ? '：' + stderr : ''}`
+        if (this.child === proc) this.child = null
+        this.metaAt = 0
       })
-      // 轮询健康，最多 90 秒（本地模型冷启动可能较慢）
-      const t0 = Date.now()
-      const timer = setInterval(async () => {
-        if (await health()) {
-          clearInterval(timer)
-          resolve({ ok: true })
-        } else if (Date.now() - t0 > 90000) {
-          clearInterval(timer)
-          resolve({ ok: false, error: '等待 Anvil 启动超时（90 秒）' })
+      const deadline = Date.now() + this.startupMs
+      while (Date.now() < deadline && !failure && !this.stop.signal.aborted) {
+        if (await this.probe(Math.min(3000, Math.max(1, deadline - Date.now())))) {
+          this.metaAt = 0; return { ok: true }
         }
-      }, 1200)
-    } catch (e) {
-      return { ok: false, error: String(e) }
-    }
-  })
-}
-
-export async function refreshMeta(): Promise<void> {
-  const [presets, integ] = await Promise.all([
-    request<{ presets?: Array<{ key: string; label?: string; bad?: boolean }> }>('GET', '/presets'),
-    request('GET', '/integrations')
-  ])
-  if (presets.status === 200 && presets.data) {
-    const raw = presets.data.presets || (presets.data as unknown as Array<{ key: string; label?: string; bad?: boolean }>)
-    adaptersCache = (Array.isArray(raw) ? raw : []).map((a) => ({
-      key: a.key,
-      label: a.label || a.key,
-      bad: a.bad
-    }))
-  }
-  if (integ.status === 200) integrationsCache = integ.data as Record<string, unknown>
-}
-
-export async function status(): Promise<AnvilStatus> {
-  const running = await health()
-  if (running && (adaptersCache.length === 0 || !integrationsCache)) await refreshMeta()
-  const h = running ? ((await request('GET', '/health')).data as Record<string, unknown>) : null
-  return {
-    running,
-    startedByUs,
-    health: h,
-    token: token(),
-    error: null,
-    adapters: adaptersCache,
-    integrations: integrationsCache
-  }
-}
-
-export async function ensure(): Promise<AnvilStatus> {
-  const st = await startBackend()
-  if (!st.ok && !(await health())) {
-    return {
-      running: false,
-      startedByUs,
-      health: null,
-      token: token(),
-      error: st.error || '启动失败',
-      adapters: [],
-      integrations: null
-    }
-  }
-  await refreshMeta()
-  return status()
-}
-
-// —— SSE 订阅转发 ——
-
-interface Watch {
-  woId: string
-  req: http.ClientRequest
-}
-
-const watches = new Map<string, Watch>()
-
-export function watchWo(woId: string, win: Win): void {
-  unwatchWo(woId)
-  const headers: Record<string, string> = {
-    Accept: 'text/event-stream',
-    'Cache-Control': 'no-store'
-  }
-  if (token()) {
-    headers['X-Local-Ide-Token'] = token() as string
-    headers.Authorization = `Bearer ${token()}`
-  }
-  const req = http.request(base() + `/wo/${woId}/events`, { method: 'GET', headers }, (res) => {
-    res.setEncoding('utf-8')
-    let buf = ''
-    res.on('data', (chunk) => {
-      buf += chunk
-      let idx: number
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const frame = buf.slice(0, idx)
-        buf = buf.slice(idx + 2)
-        const dataLines = frame
-          .split('\n')
-          .filter((l) => l.startsWith('data:'))
-          .map((l) => l.slice(5).trim())
-        if (!dataLines.length) continue
-        let ev: unknown = null
-        try {
-          ev = JSON.parse(dataLines.join('\n'))
-        } catch {
-          ev = { kind: 'raw', text: dataLines.join('\n') }
-        }
-        if (win && !win.isDestroyed()) win.webContents.send('anvil:event', { woId, ev })
+        if (failure) break
+        await delay(Math.min(300, Math.max(0, deadline - Date.now())), undefined, { signal: this.stop.signal })
       }
-    })
-    res.on('end', () => {
-      if (win && !win.isDestroyed()) win.webContents.send('anvil:event', { woId, ev: { kind: 'stream_end' } })
-      watches.delete(woId)
-    })
-  })
-  req.on('error', () => {
-    watches.delete(woId)
-  })
-  req.end()
-  watches.set(woId, { woId, req })
-}
-
-export function unwatchWo(woId: string): void {
-  const w = watches.get(woId)
-  if (w) {
-    try {
-      w.req.destroy()
-    } catch {
-      /* 已断开 */
+      stopProcess(proc)
+      return { ok: false, error: failure || (this.stop.signal.aborted ? '宿主已关闭' : '等待 Anvil 启动超时') }
+    } catch (error) {
+      stopProcess(proc)
+      return { ok: false, error: `Anvil 启动失败：${String(error)}` }
     }
-    watches.delete(woId)
+  }
+
+  refreshMeta(): Promise<void> {
+    if (!this.refreshing) this.refreshing = this.loadMeta().finally(() => { this.refreshing = null })
+    return this.refreshing
+  }
+
+  private async loadMeta(): Promise<void> {
+    const [presets, integrations] = await Promise.all([
+      this.request<Record<string, unknown>>('GET', '/presets'), this.request<Record<string, unknown>>('GET', '/integrations')
+    ])
+    this.adapters = []
+    if (presets.status === 200 && presets.data) {
+      const raw = presets.data.profiles || presets.data.presets || presets.data
+      const unusable = presets.data.unusable
+      this.adapters = (Array.isArray(raw) ? raw : []).filter((item) => typeof item?.key === 'string').map((item) => ({
+        key: item.key, label: item.label || item.key,
+        bad: Boolean(item.bad || (Array.isArray(unusable) ? unusable.includes(item.model)
+          : unusable && typeof unusable === 'object' && item.model in unusable))
+      }))
+      const preferred = presets.data.default
+      this.adapters.sort((a, b) => Number(b.key === preferred) - Number(a.key === preferred))
+    }
+    this.integrations = integrations.status === 200 ? integrations.data : null
+    this.metaAt = presets.status === 200 && integrations.status === 200 ? Date.now() : 0
+  }
+
+  status(): Promise<AnvilStatus> {
+    if (!this.checking) this.checking = this.readStatus().finally(() => { this.checking = null })
+    return this.checking
+  }
+
+  private async readStatus(): Promise<AnvilStatus> {
+    const health = await this.probe()
+    if (health && Date.now() - this.metaAt > 30000) await this.refreshMeta()
+    if (!health) { this.metaAt = 0; this.adapters = []; this.integrations = null }
+    return { running: Boolean(health), startedByUs: Boolean(this.child), health,
+      token: await this.client.token(), error: null, adapters: this.adapters, integrations: this.integrations }
+  }
+
+  async ensure(): Promise<AnvilStatus> {
+    const start = await this.startBackend()
+    const result = await this.status()
+    return result.running ? result : { ...result, error: start.error || '启动失败' }
+  }
+
+  watchWo(woId: string, win: Win): void {
+    this.unwatchWo(woId)
+    if (this.stop.signal.aborted || !win || win.isDestroyed()) return
+    const subscription = new WorkOrderSubscription(this.client, woId,
+      (ev) => { if (!win.isDestroyed()) win.webContents.send('anvil:event', { woId, ev }) },
+      () => { if (this.watches.get(woId) === subscription) this.watches.delete(woId) })
+    this.watches.set(woId, subscription)
+  }
+
+  unwatchWo(woId: string): void { this.watches.get(woId)?.close() }
+
+  shutdown(): void {
+    this.stop.abort()
+    for (const subscription of this.watches.values()) subscription.close()
+    this.client.close()
+    stopProcess(this.child)
   }
 }
 
-export function shutdown(): void {
-  for (const id of [...watches.keys()]) unwatchWo(id)
-  if (child && startedByUs) {
-    try {
-      child.kill()
-    } catch {
-      /* 已退出 */
-    }
-    child = null
-  }
-}
+const host = new AnvilHost()
+export const request = host.request.bind(host)
+export const health = host.health.bind(host)
+export const startBackend = host.startBackend.bind(host)
+export const refreshMeta = host.refreshMeta.bind(host)
+export const status = host.status.bind(host)
+export const ensure = host.ensure.bind(host)
+export const watchWo = host.watchWo.bind(host)
+export const unwatchWo = host.unwatchWo.bind(host)
+export const shutdown = host.shutdown.bind(host)

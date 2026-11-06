@@ -37,9 +37,11 @@ export async function initRun(): Promise<void> {
   compilers = await window.ide.detectCompilers()
   const gcc = compilers.find((c) => c.kind === 'g++') || compilers.find((c) => c.kind === 'gcc')
   const py = compilers.find((c) => c.kind === 'python')
+  const jdk = compilers.find((c) => c.kind === 'java')
   const parts: string[] = []
   if (gcc) parts.push(`C/C++ ✓ ${gcc.version.slice(0, 40)}`)
   if (py) parts.push(`Python ✓ ${py.version}`)
+  if (jdk) parts.push(`Java ✓ ${jdk.version.slice(0, 40)}`)
   $('st-compiler').textContent = parts.length ? parts.join(' · ') : '未检测到编译器（C/C++ 需要 MinGW）'
 
   $('btn-run').addEventListener('click', () => void doRun())
@@ -52,12 +54,12 @@ export async function initRun(): Promise<void> {
   const send = (): void => {
     const input = $('console-input') as HTMLInputElement
     const v = input.value
-    if (!v) return
-    if (runSid !== null) {
-      out(v, 'co-dim')
-      void window.ide.sendInput(runSid, v)
-      input.value = ''
-    }
+    if (runSid === null) return
+    if (!v && document.activeElement !== input) return
+    // 空行也发送：等待输入的程序（scanf 陏 getchar）可以用空行继续
+    out(v === '' ? '' : v, 'co-dim')
+    void window.ide.sendInput(runSid, v)
+    input.value = ''
   }
   $('console-send').addEventListener('click', send)
   $('console-input').addEventListener('keydown', (e) => {
@@ -87,8 +89,9 @@ export async function initRun(): Promise<void> {
     const hint: Record<string, string> = {
       gcc: '没有找到 C 编译器。请先安装 MinGW-w64（或在设置中确认 gcc 所在目录已加入 PATH）。',
       'g++': '没有找到 C++ 编译器。请先安装 MinGW-w64。',
-      python: '没有找到 Python。请安装 Python 3 后重试。',
-      node: '没有找到 Node.js。'
+      python: '没有找到可用的 Python（含项目 .venv）。请安装 Python 3 或修复项目虚拟环境后重试。',
+      node: '没有找到 Node.js。',
+      java: '没有找到完整 JDK（需要同目录的 javac 与 java）。请安装 JDK 后重试。'
     }
     out(`[无法运行] ${hint[need] ?? '没有可用的编译器/解释器'}`, 'co-err')
   })
@@ -103,8 +106,8 @@ async function doRun(): Promise<void> {
     return
   }
   const ext = tab.path.split('.').pop()?.toLowerCase() ?? ''
-  if (!['c', 'cpp', 'cc', 'cxx', 'py', 'js', 'mjs'].includes(ext)) {
-    out(`[暂不支持运行 .${ext} 文件，支持 C / C++ / Python / JavaScript]`, 'co-dim')
+  if (!['c', 'cpp', 'cc', 'cxx', 'py', 'js', 'mjs', 'java'].includes(ext)) {
+    out(`[暂不支持运行 .${ext} 文件，支持 C / C++ / Python / JavaScript / Java]`, 'co-dim')
     $('console-wrap').classList.remove('collapsed')
     return
   }
@@ -114,8 +117,15 @@ async function doRun(): Promise<void> {
   if (!saved) return
   const r = await window.ide.startRun(saved)
   if (r.compiler) {
-    out(`使用 ${r.compiler.kind === 'g++' || r.compiler.kind === 'gcc' ? 'GCC' : r.compiler.kind}：${r.compiler.version}`, 'co-dim')
+    out(
+      r.compiler.kind === 'java'
+        ? `使用 JDK：${r.compiler.version}`
+        : `使用 ${r.compiler.kind === 'g++' || r.compiler.kind === 'gcc' ? 'GCC' : r.compiler.kind}：${r.compiler.version}`,
+      'co-dim'
+    )
     setRunning(true, r.sid)
+  } else {
+    out(`[无法运行] ${r.reason ?? '没有可用的编译器/解释器'}`, 'co-err')
   }
 }
 

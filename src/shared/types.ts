@@ -13,9 +13,11 @@ export interface ReadResult {
 }
 
 export interface CompilerInfo {
-  kind: 'gcc' | 'g++' | 'python' | 'node'
+  kind: 'gcc' | 'g++' | 'python' | 'node' | 'java'
   path: string
   version: string
+  /** Java 编译器配套的 java 可执行文件。 */
+  runtimePath?: string
 }
 
 export type OutChunk = { sid: number; stream: 'stdout' | 'stderr'; text: string }

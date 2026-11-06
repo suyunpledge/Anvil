@@ -1,208 +1,182 @@
-import { spawn, ChildProcess } from 'node:child_process'
-import fs from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
+import fs from 'node:fs/promises'
 import path from 'node:path'
-import os from 'node:os'
+import { StringDecoder } from 'node:string_decoder'
 import { app } from 'electron'
 import type { CompilerInfo, OutChunk, ExitInfo, RunStartResult } from '../shared/types'
-
-// —— 一键运行：编译器探测 + 编译 + 运行 + 流式输出 ——
-
-const KNOWN_DIRS = [
-  'C:\\Users\\Public\\mingw64\\bin', // 本机 AnvilIDE 配套 MinGW
-  'C:\\MinGW\\bin',
-  'C:\\mingw64\\bin',
-  'C:\\msys64\\ucrt64\\bin',
-  'C:\\TDM-GCC-64\\bin'
-]
-
-interface Session {
-  proc: ChildProcess | null
-  file: string
-  compiler: CompilerInfo | null
-  startedAt: number
-}
-
-let nextSid = 1
-const sessions = new Map<number, Session>()
-
-let compilerCache: CompilerInfo[] | null = null
-
-async function probe(cmd: string, args: string[], cwd: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    try {
-      const p = spawn(cmd, args, { cwd, windowsHide: true, shell: false })
-      let out = ''
-      const timer = setTimeout(() => {
-        p.kill()
-        resolve(null)
-      }, 6000)
-      p.stdout?.on('data', (d) => (out += String(d)))
-      p.stderr?.on('data', (d) => (out += String(d)))
-      p.on('error', () => {
-        clearTimeout(timer)
-        resolve(null)
-      })
-      p.on('close', (code) => {
-        clearTimeout(timer)
-        resolve(code === 0 || out.length > 0 ? out.split('\n')[0].trim() : null)
-      })
-    } catch {
-      resolve(null)
-    }
-  })
-}
-
-function firstExisting(candidates: string[]): string | null {
-  for (const c of candidates) {
-    if (c && fs.existsSync(c)) return c
-  }
-  return null
-}
-
-export async function detectCompilers(force = false): Promise<CompilerInfo[]> {
-  if (compilerCache && !force) return compilerCache
-  const found: CompilerInfo[] = []
-  const home = os.homedir()
-
-  async function tryTool(kind: CompilerInfo['kind'], names: string[], versionArgs: string[]): Promise<void> {
-    // 1) PATH 上的可执行文件
-    for (const n of names) {
-      const viaPath = firstExisting(
-        (process.env.PATH || '').split(';').map((d) => path.join(d.trim(), n + '.exe'))
-      )
-      const exe = viaPath || firstExisting(KNOWN_DIRS.map((d) => path.join(d, n + '.exe')))
-      if (exe) {
-        const v = await probe(exe, versionArgs, path.dirname(exe))
-        if (v) {
-          found.push({ kind, path: exe, version: v.slice(0, 80) })
-          return
-        }
-      }
-    }
-    void home
-  }
-
-  await tryTool('gcc', ['gcc'], ['--version'])
-  await tryTool('g++', ['g++'], ['--version'])
-  await tryTool('python', ['python', 'python3'], ['--version'])
-  await tryTool('node', ['node'], ['--version'])
-  compilerCache = found
-  return found
-}
-
-export function compilerFor(file: string, list: CompilerInfo[]): CompilerInfo | null {
-  const ext = path.extname(file).toLowerCase()
-  if (ext === '.c') return list.find((c) => c.kind === 'gcc') || null
-  if (['.cpp', '.cc', '.cxx'].includes(ext)) return list.find((c) => c.kind === 'g++') || null
-  if (ext === '.py') return list.find((c) => c.kind === 'python') || null
-  if (['.js', '.mjs', '.cjs'].includes(ext)) return list.find((c) => c.kind === 'node') || null
-  return null
-}
-
-function buildDirFor(file: string): string {
-  return path.join(path.dirname(file), '.anvilide')
-}
+import { stopProcess } from './process-host'
+import { OutputBuffer } from './output-buffer'
+import { languageKind, resolveCompiler, toolEnvironment, shutdownToolchains } from './toolchains'
+export { detectCompilers, compilerFor } from './toolchains'
 
 type Emit = (chunk: OutChunk | ExitInfo) => void
+interface Session { proc: ChildProcess | null; cancelled: boolean; phase: 'preparing' | 'compile' | 'run' }
+const sessions = new Map<number, Session>()
+let nextSid = 1
+let stopping = false
 
-export async function startRun(
-  file: string,
-  emit: Emit,
-  onCompilerMissing: (need: CompilerInfo['kind']) => void
-): Promise<RunStartResult> {
+export function javaPackage(source: string): string {
+  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, ' ')
+  const match = code.match(/\bpackage\s+([\p{L}_$][\p{L}\p{N}_$]*(?:\s*\.\s*[\p{L}_$][\p{L}\p{N}_$]*)*)\s*;/u)
+  return match ? match[1].replace(/\s/g, '') : ''
+}
+
+export async function startRun(file: string, emit: Emit,
+  onCompilerMissing: (need: CompilerInfo['kind']) => void): Promise<RunStartResult> {
   const sid = nextSid++
-  const compilers = await detectCompilers()
-  const compiler = compilerFor(file, compilers)
-  if (!compiler) {
-    const ext = path.extname(file).toLowerCase()
-    const need: CompilerInfo['kind'] =
-      ext === '.c' ? 'gcc' : ext === '.py' ? 'python' : ext === '.js' ? 'node' : 'g++'
-    onCompilerMissing(need)
-    return { sid, compileNeeded: false, compiler: null, reason: '没有找到可用的编译器/解释器' }
-  }
+  const kind = languageKind(file)
+  const failure = (reason: string): RunStartResult => ({ sid, compiler: null, compileNeeded: false, reason })
+  if (!kind) return failure('支持 C / C++ / Python / Java / JavaScript 源文件')
+  file = path.resolve(file)
+  let compiler: CompilerInfo | null
+  let env: NodeJS.ProcessEnv
+  try {
+    if (!(await fs.stat(file)).isFile()) return failure('运行目标不是文件')
+    compiler = await resolveCompiler(file)
+    if (!compiler) { onCompilerMissing(kind); return failure('未找到工具链：' + kind) }
+    env = await toolEnvironment(path.dirname(file), compiler)
+  } catch (error) { return failure(String(error)) }
+  if (stopping) return failure('IDE 正在退出')
 
-  const bdir = buildDirFor(file)
-  fs.mkdirSync(bdir, { recursive: true })
-
+  const session: Session = { proc: null, cancelled: false, phase: 'preparing' }
+  sessions.set(sid, session)
+  const output = new OutputBuffer((stream, text) => emit({ sid, stream, text }))
+  let finished = false, buildDir: string | null = null
   const finish = (code: number | null, signal?: string) => {
+    if (finished) return
+    finished = true
+    output.flush()
     sessions.delete(sid)
     emit({ sid, code, signal })
+    if (buildDir) {
+      const root = path.resolve(path.dirname(file), '.anvilide')
+      const target = path.resolve(buildDir)
+      if (path.dirname(target) === root && path.basename(target).startsWith('run-')) {
+        void fs.rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {})
+      }
+    }
   }
-
-  const spawnRun = (cmd: string, args: string[]) => {
-    const proc = spawn(cmd, args, {
-      cwd: path.dirname(file),
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+  const run = (cmd: string, args: string[]) => {
+    if (session.cancelled || stopping) { finish(null, 'SIGTERM'); return }
+    session.phase = 'run'
+    const proc = spawn(cmd, args, { cwd: path.dirname(file), windowsHide: true,
+      shell: false, stdio: ['pipe', 'pipe', 'pipe'], env })
+    session.proc = proc
+    const stdout = new StringDecoder('utf8'), stderr = new StringDecoder('utf8')
+    let errorTail = ''
+    proc.stdout?.on('data', data => output.write('stdout', stdout.write(data)))
+    proc.stderr?.on('data', data => {
+      const text = stderr.write(data)
+      errorTail = (errorTail + text).slice(-65536)
+      output.write('stderr', text)
     })
-    sessions.set(sid, { proc, file, compiler, startedAt: Date.now() })
-    const dec = (b: Buffer): string => {
-      const t = new TextDecoder('utf-8', { fatal: false }).decode(b)
-      return t
-    }
-    proc.stdout?.on('data', (b) => emit({ sid, stream: 'stdout', text: dec(b as Buffer) }))
-    proc.stderr?.on('data', (b) => emit({ sid, stream: 'stderr', text: dec(b as Buffer) }))
-    proc.on('error', (e) => emit({ sid, stream: 'stderr', text: `\n[启动失败] ${String(e)}\n` }))
-    proc.on('close', (code2, signal2) => finish(code2, signal2 ?? undefined))
+    proc.stdin?.on('error', () => {})
+    proc.on('error', error => output.write('stderr', `[启动失败] ${String(error)}\n`))
+    proc.on('close', (code, signal) => {
+      output.write('stdout', stdout.end()); output.write('stderr', stderr.end())
+      output.flush()
+      if (code && compiler.kind === 'python') {
+        const frames = [...errorTail.matchAll(/File "([^"]+)", line (\d+)/g)]
+        const frame = frames[frames.length - 1]
+        const message = errorTail.trim().split(/\r?\n/).pop()
+        if (frame && message) output.write('stderr', `${frame[1]}:${frame[2]}:1: error: ${message}\n`)
+      }
+      finish(code, signal || undefined)
+    })
   }
-
-  if (compiler.kind === 'python' || compiler.kind === 'node') {
-    spawnRun(compiler.path, [file])
-    return { sid, compileNeeded: false, compiler }
-  }
-
-  // C / C++：先编译到 .anvilide 隐藏目录，成功后运行
-  const base = path.basename(file).replace(/\.[^.]+$/, '')
-  const exe = path.join(bdir, `${base}.exe`)
-  const compileProc = spawn(
-    compiler.path,
-    ['-Wall', '-fexec-charset=UTF-8', file, '-o', exe],
-    { cwd: path.dirname(file), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }
-  )
-  let errText = ''
-  compileProc.stderr?.on('data', (b) => (errText += new TextDecoder('utf-8', { fatal: false }).decode(b as Buffer)))
-  compileProc.stdout?.on('data', (b) => (errText += new TextDecoder('utf-8', { fatal: false }).decode(b as Buffer)))
-  compileProc.on('error', (e) => {
-    emit({ sid, stream: 'stderr', text: `[编译器启动失败] ${String(e)}\n` })
-    finish(-1)
-  })
-  compileProc.on('close', (code2) => {
-    if (code2 === 0) {
-      emit({ sid, stream: 'stdout', text: '[编译成功，开始运行]\n' })
-      spawnRun(exe, [])
-    } else {
-      emit({ sid, stream: 'stderr', text: errText || '[编译失败，且编译器没有输出错误信息]\n' })
-      finish(code2)
+  const compile = (cmd: string, args: string[], launch: () => void) => {
+    if (session.cancelled || stopping) { finish(null, 'SIGTERM'); return }
+    session.phase = 'compile'
+    const proc = spawn(cmd, args, { cwd: path.dirname(file), windowsHide: true,
+      shell: false, stdio: ['ignore', 'pipe', 'pipe'], env })
+    session.proc = proc
+    const stdout = new StringDecoder('utf8'), stderr = new StringDecoder('utf8')
+    let diagnostics = '', truncated = false, timedOut = false
+    const capture = (text: string) => {
+      if (diagnostics.length + text.length > 1024 * 1024) truncated = true
+      diagnostics = (diagnostics + text).slice(-1024 * 1024)
     }
-  })
-  return { sid, compileNeeded: true, compiler }
+    proc.stdout?.on('data', data => capture(stdout.write(data)))
+    proc.stderr?.on('data', data => capture(stderr.write(data)))
+    const requested = Number(process.env.ANVIL_COMPILE_TIMEOUT_MS || 60000)
+    const timeout = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 600000) : 60000
+    const timer = setTimeout(() => {
+      timedOut = true
+      output.write('stderr', `[编译超时] 已超过 ${timeout / 1000} 秒，正在停止编译进程。\n`)
+      stopProcess(proc)
+    }, timeout)
+    proc.on('error', error => {
+      clearTimeout(timer)
+      output.write('stderr', `[编译器启动失败] ${String(error)}\n`)
+      finish(-1)
+    })
+    proc.on('close', code => {
+      clearTimeout(timer)
+      if (finished) return
+      capture(stdout.end() + stderr.end())
+      if (truncated) output.write('stderr', '[诊断输出超过 1 MiB，仅保留末尾]\n')
+      if (compiler.kind === 'java') diagnostics = diagnostics.replace(/^(.*\.java):(\d+): (error|warning):/gm, '$1:$2:1: $3:')
+      // 编译成功时也保留警告，沿用前端现有的 file:line:column 格式。
+      if (diagnostics) output.write('stderr', diagnostics)
+      output.flush()
+      if (session.cancelled || stopping || timedOut) { finish(null, timedOut ? 'TIMEOUT' : 'SIGTERM'); return }
+      if (code === 0) { output.write('stdout', '[编译成功，开始运行]\n'); launch() }
+      else { if (!diagnostics) output.write('stderr', '[编译失败，编译器未返回诊断]\n'); finish(code) }
+    })
+  }
+  const prepare = async () => {
+    try {
+      if (session.cancelled || stopping) { finish(null, 'SIGTERM'); return }
+      if (compiler.kind === 'python') { run(compiler.path, ['-u', '-X', 'utf8', file]); return }
+      if (compiler.kind === 'node') { run(compiler.path, [file]); return }
+      const root = path.join(path.dirname(file), '.anvilide')
+      await fs.mkdir(root, { recursive: true })
+      buildDir = await fs.mkdtemp(path.join(root, 'run-'))
+      if (compiler.kind === 'java') {
+        if (!compiler.runtimePath) throw new Error('需要包含 java 与 javac 的完整 JDK')
+        const pkg = javaPackage(await fs.readFile(file, 'utf8'))
+        const mainClass = [pkg, path.basename(file, path.extname(file))].filter(Boolean).join('.')
+        let sourceRoot = path.dirname(file)
+        const segments = pkg.split('.').filter(Boolean)
+        let candidate = sourceRoot
+        for (const segment of [...segments].reverse()) {
+          if (path.basename(candidate) !== segment) { candidate = sourceRoot; break }
+          candidate = path.dirname(candidate)
+        }
+        sourceRoot = candidate
+        compile(compiler.path, ['-encoding', 'UTF-8', '-g', '-Xlint:all', '-J-Duser.language=en', '-J-Duser.country=US',
+          '-d', buildDir, '-sourcepath', sourceRoot, '-classpath', sourceRoot, file],
+        () => run(compiler.runtimePath!, ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8',
+          '-classpath', buildDir + path.delimiter + sourceRoot, mainClass]))
+      } else {
+        const exe = path.join(buildDir, process.platform === 'win32' ? 'program.exe' : 'program')
+        // 独立的小型启动单元，不改用户源码；使 printf 提示在 scanf 前到达管道。
+        const bridge = path.join(buildDir, 'stdio-bridge.c')
+        await fs.writeFile(bridge, '#include <stdio.h>\n__attribute__((constructor)) static void anvil_stdio_init(void) { setvbuf(stdout, NULL, _IONBF, 0); setvbuf(stderr, NULL, _IONBF, 0); }\n')
+        compile(compiler.path, [compiler.kind === 'gcc' ? '-std=c17' : '-std=c++17', '-g', '-Wall', '-Wextra',
+          '-fdiagnostics-color=never', '-finput-charset=UTF-8', '-fexec-charset=UTF-8', file, bridge, '-o', exe], () => run(exe, []))
+      }
+    } catch (error) { output.write('stderr', `[运行准备失败] ${String(error)}\n`); finish(-1) }
+  }
+  // 先返回会话 ID，让 IPC 响应先于短程序的输出进入消息队列。
+  setImmediate(() => { void prepare() })
+  return { sid, compiler, compileNeeded: !['python', 'node'].includes(compiler.kind) }
 }
 
 export function sendInput(sid: number, line: string): boolean {
-  const s = sessions.get(sid)
-  if (!s?.proc?.stdin) return false
-  s.proc.stdin.write(line.endsWith('\n') ? line : line + '\n')
+  const session = sessions.get(sid)
+  if (!session || session.phase !== 'run' || session.cancelled || !session.proc?.stdin?.writable) return false
+  session.proc.stdin.write(line.endsWith('\n') ? line : line + '\n')
   return true
 }
-
 export function killRun(sid: number): boolean {
-  const s = sessions.get(sid)
-  if (!s) return false
-  if (s.proc && !s.proc.killed) {
-    try {
-      s.proc.kill()
-    } catch {
-      /* 已经退出 */
-    }
-  }
-  return true
+  const session = sessions.get(sid)
+  if (!session) return false
+  session.cancelled = true; stopProcess(session.proc); return true
 }
-
-export function activeSessions(): number[] {
-  return [...sessions.keys()]
+export function activeSessions(): number[] { return [...sessions.keys()] }
+export function shutdownAll(): void {
+  stopping = true; shutdownToolchains()
+  for (const sid of sessions.keys()) killRun(sid)
 }
-
-export function buildRoot(): string {
-  return path.join(app.getPath('userData'), 'build')
-}
+export function buildRoot(): string { return path.join(app.getPath('userData'), 'build') }
