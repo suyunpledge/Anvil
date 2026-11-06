@@ -162,6 +162,7 @@ body {
 }
 #console-wrap.collapsed { flex: 0 0 34px; }
 #console-wrap.collapsed #console-body { display: none; }
+#console-wrap.collapsed #term-body { display: none; }
 #console-head {
   flex: 0 0 34px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
   color: var(--muted); font-size: 12px;

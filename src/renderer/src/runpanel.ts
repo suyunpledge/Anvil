@@ -49,7 +49,16 @@ export async function initRun(): Promise<void> {
     if (runSid !== null) void window.ide.killRun(runSid)
   })
   $('console-clear').addEventListener('click', clearOut)
-  $('console-toggle').addEventListener('click', () => $('console-wrap').classList.toggle('collapsed'))
+  $('console-toggle').addEventListener('click', () => {
+    $('console-wrap').classList.toggle('collapsed')
+    // 展开/收起后重新聚焦输入框，避免焦点滞留在别处
+    const input = $('console-input') as HTMLInputElement
+    if (!$('console-wrap').classList.contains('collapsed')) input.focus()
+  })
+  // 点击输出区域任意位置 → 聚焦输入框（新手友好：不用猜哪里能打字）
+  $('console-out').addEventListener('click', () => {
+    if (runSid !== null) ($('console-input') as HTMLInputElement).focus()
+  })
 
   const send = (): void => {
     const input = $('console-input') as HTMLInputElement
