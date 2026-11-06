@@ -17,13 +17,35 @@ function showPanel(p: Panel): void {
   if (p === 'term') void activateTerminal()
 }
 
-async function bootstrap(): Promise<void> {
-  initExplorer()
-  initCursorStatus()
-  initTerminal()
-  await initRun()
-  await initAnvilPanel()
+async function step(name: string, fn: () => Promise<void> | void): Promise<void> {
+  try {
+    await fn()
+  } catch (e) {
+    console.error(`[bootstrap] ${name} 失败：`, e)
+  }
+}
 
+async function bootstrap(): Promise<void> {
+  // 监听器先挂，后续初始化任何一步失败都不影响按钮可用
+  attachListeners()
+  await step('explorer', () => initExplorer())
+  await step('cursor', () => initCursorStatus())
+  await step('terminal', () => initTerminal())
+  await step('run', () => initRun())
+  await step('anvil', () => initAnvilPanel())
+
+  // —— 恢复上一次会话（独立容错：恢复失败不影响其他功能）——
+  await step('restore', async () => {
+    const recent = await window.ide.recentFolders()
+    if (recent.lastFolder) await openFolder(recent.lastFolder)
+    if (recent.lastFile) await openFile(recent.lastFile)
+  })
+  await step('welcome-recent', () => buildWelcomeRecents())
+
+  void activeTab()
+}
+
+function attachListeners(): void {
   // —— 面板 Tab ——
   document.querySelectorAll('.ptab').forEach((b) => {
     b.addEventListener('click', () => showPanel(((b as HTMLElement).dataset.panel ?? 'out') as Panel))
@@ -89,20 +111,11 @@ async function bootstrap(): Promise<void> {
     }
   })
 
-  // —— 恢复上一次会话 ——
-  const recent = await window.ide.recentFolders()
-  if (recent.lastFolder) await openFolder(recent.lastFolder)
-  if (recent.lastFile) {
-    try {
-      await openFile(recent.lastFile)
-    } catch {
-      /* 文件已不存在 */
-    }
-  }
-  buildWelcomeRecents()
-
-  void activeTab()
+  })
 }
+
+// 欢迎页最近列表
+function buildWelcomeRecents(): void {
 
 // 导入单个路径：文件夹 → 展开文件树；文件 → 直接开标签（当场可运行）
 async function importFile(p: string): Promise<void> {
