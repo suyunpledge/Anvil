@@ -30,7 +30,8 @@ function file(): string {
 
 export function loadSettings(): Settings {
   try {
-    const raw = fs.readFileSync(file(), 'utf-8')
+    // 剥离 UTF-8 BOM：PowerShell 5.1 的 Set-Content -Encoding utf8 会写 BOM，JSON.parse 遇 BOM 必抛
+    const raw = fs.readFileSync(file(), 'utf-8').replace(/^﻿/, '')
     const parsed = JSON.parse(raw) as Partial<Settings>
     return { ...defaults(), ...parsed }
   } catch {

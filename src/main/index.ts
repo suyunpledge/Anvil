@@ -43,7 +43,22 @@ function createWindow(): void {
       spellcheck: false
     }
   })
-  win.on('ready-to-show', () => win?.show())
+  win.on('ready-to-show', () => { console.error('[main-bc] ready-to-show'); win?.show() })
+  // 渲染层诊断：加载失败/控制台错误/渲染进程崩溃全部落日志
+  win.webContents.on('did-fail-load', (_e, code, desc, url) =>
+    console.error(`[main-bc] did-fail-load code=${code} desc=${desc} url=${url}`))
+  win.webContents.on('console-message', (_e, level, message) => {
+    if (level >= 2) console.error(`[renderer-console] ${message}`)
+  })
+  win.webContents.on('render-process-gone', (_e, details) =>
+    console.error(`[main-bc] render-process-gone reason=${details.reason}`))
+  // 兜底：ready-to-show 3 秒未到也强制显示，避免窗口永远隐藏
+  setTimeout(() => {
+    if (win && !win.isVisible() && !win.isDestroyed()) {
+      console.error('[main-bc] fallback-show')
+      win.show()
+    }
+  }, 3000)
   term.bindWindow(win)
   // 外部链接交给系统浏览器
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -63,11 +78,17 @@ function emit(chunk: OutChunk | ExitInfo): void {
   if (win && !win.isDestroyed()) win.webContents.send('code' in chunk ? 'run:exit' : 'run:out', chunk)
 }
 
+const __diagBc = (m: string): void => console.error(`[main-bc] ${m} t=${Date.now()}`)
+__diagBc('modules-loaded')
+
 app.whenReady().then(() => {
+  __diagBc('whenReady')
   // 自研界面：移除 Electron 默认菜单栏，保留系统窗口按钮（titleBarOverlay）
   Menu.setApplicationMenu(null)
   createWindow()
+  __diagBc('window-created')
   registerIpc()
+  __diagBc('ipc-registered')
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
