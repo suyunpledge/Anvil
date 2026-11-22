@@ -1,6 +1,12 @@
 # Local Model IDE · 一期
 
-**一个拔掉网线也照样干活的编码环境。**
+**面向本地模型的离线优先编码环境，提供工单、确定性检查与人工确认后写入。**
+
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)](https://developer.mozilla.org/docs/Web/JavaScript)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+[English](README.md) · **中文**
 
 它不是一个"弱化版 Cursor"。Cursor 的假设是模型足够聪明、框架别挡路；这里的假设相反——
 **模型不够聪明，框架替它做判断**。落到代码上就是三件事：框架驱动的工单状态机、
@@ -160,3 +166,7 @@ VS Code 扩展 ──HTTP/SSE──▶ 工单服务 ──▶ 工单状态机（
 `CODEX-HANDOFF.md` 是专门为"接下来用 Codex 做修正"写的：
 做了什么、没做什么、已知缺陷在哪、怎么验、哪些地方别动。
 `docs/验收清单.md` 是逐条验收口径。
+
+## 许可证
+
+本仓库的原创代码采用 [MIT](LICENSE) 许可证。上游核心快照的来源见 [core/VENDOR.md](core/VENDOR.md)。

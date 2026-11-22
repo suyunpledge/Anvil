@@ -1,6 +1,12 @@
 # Local Model IDE · Phase 1
 
-**A coding environment that keeps working with the network cable pulled.**
+**An offline-first coding environment for local models, with work orders, deterministic checks, and human approval before file writes.**
+
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)](https://developer.mozilla.org/docs/Web/JavaScript)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+**English** · [中文](README.zh.md)
 
 It is not a "Cursor-lite". Cursor assumes the model is smart enough and the framework should stay out of its way; here the assumption is the opposite —
 **the model isn't smart enough, so the framework makes the calls.** In code that comes down to three things: a framework-driven work-order state machine,
@@ -164,3 +170,7 @@ what was done, what was not, where the known defects are, how to verify, and wha
 Four rounds of model benchmark notes (incl. the glm4 rehabilitation): `docs/模型测验全记录.md`.
 Model capability cheatsheet: `docs/模型特点速查.md`.
 Capability / permission / deletion-safety design: `docs/能力权限与安全.md`.
+
+## License
+
+The original code in this repository is available under the [MIT](LICENSE) license. The upstream core snapshot is documented in [core/VENDOR.md](core/VENDOR.md).
