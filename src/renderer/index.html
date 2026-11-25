@@ -13,35 +13,39 @@
   <div id="app">
     <!-- 标题栏（右侧为系统原生窗口按钮，内容避开右侧 150px） -->
     <header id="titlebar">
-      <div class="brand">⚒ 铁砧 IDE</div>
-      <div id="title-folder" class="title-folder">未打开文件夹</div>
+      <div class="brand"><i data-ic="brand"></i><span class="brand-name">铁砧</span><span class="brand-tag">IDE</span></div>
+      <div class="title-path"><i data-ic="folder"></i><span id="title-folder" class="title-folder">未打开文件夹</span></div>
       <div class="titlebar-spacer"></div>
     </header>
 
     <!-- 工具栏 -->
     <div id="toolbar">
-      <button id="btn-open" class="tb-btn" title="打开一个代码文件夹">📂 打开文件夹</button>
-      <button id="btn-openfile" class="tb-btn" title="直接打开单个代码文件（也可以把文件直接拖进窗口）">📂 打开文件</button>
-      <button id="btn-newfile" class="tb-btn" title="在当前文件夹新建文件">📄 新建文件</button>
-      <button id="btn-save" class="tb-btn" title="保存当前文件（Ctrl+S）" disabled>保存</button>
-      <button id="btn-quick-open" class="tb-btn" title="按文件名快速打开（Ctrl+P）">快速打开</button>
+      <div class="tb-group">
+        <button id="btn-open" class="tb-btn" title="打开一个代码文件夹"><i data-ic="folderOpen"></i><span>打开文件夹</span></button>
+        <button id="btn-openfile" class="tb-btn" title="直接打开单个代码文件（也可以把文件直接拖进窗口）"><i data-ic="fileCode"></i><span>打开文件</span></button>
+        <button id="btn-newfile" class="tb-btn" title="在当前文件夹新建文件"><i data-ic="filePlus"></i><span>新建文件</span></button>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
+        <button id="btn-save" class="tb-btn" title="保存当前文件（Ctrl+S）" disabled><i data-ic="save"></i><span>保存</span></button>
+        <button id="btn-quick-open" class="tb-btn" title="按文件名快速打开（Ctrl+P）"><i data-ic="search"></i><span>快速打开</span></button>
+      </div>
       <div class="tb-sep"></div>
       <button id="btn-run" class="run-btn" title="保存并编译运行当前文件 (F5)">
-        ▶ 运行 <span class="run-key">F5</span>
+        <i data-ic="play"></i><span>运行</span><span class="run-key">F5</span>
       </button>
-      <button id="btn-stop" class="tb-btn stop" title="结束正在运行的程序" disabled>■ 停止</button>
-      <div class="tb-sep"></div>
+      <button id="btn-stop" class="tb-btn stop" title="结束正在运行的程序" disabled><i data-ic="stop"></i><span>停止</span></button>
       <span id="lang-badge" class="lang-badge" title="当前文件类型">—</span>
       <div class="tb-spacer"></div>
-      <span id="anvil-dot" class="anvil-dot off" title="Anvil 本地模型服务状态">● Anvil</span>
+      <span id="anvil-dot" class="anvil-dot off" title="本地 AI 模型状态">本地 AI</span>
     </div>
 
     <!-- 主区域 -->
     <div id="main">
       <aside id="sidebar">
         <div id="side-tabs">
-          <button class="side-tab active" data-pane="files">文件</button>
-          <button class="side-tab" data-pane="anvil">AI 聊天</button>
+          <button class="side-tab active" data-pane="files"><i data-ic="files"></i><span>文件</span></button>
+          <button class="side-tab" data-pane="anvil"><i data-ic="chat"></i><span>AI 聊天</span></button>
         </div>
         <div id="pane-files" class="side-pane active">
           <div id="file-tree" class="file-tree"><div class="hint">点击上方「打开文件夹」<br />选择你的代码文件夹</div></div>
@@ -54,15 +58,15 @@
         <div id="editor-host">
           <div id="editor"></div>
           <div id="welcome" class="welcome">
-            <div class="w-logo">⚒</div>
-            <h1>铁砧 IDE</h1>
+            <div class="w-logo"><i data-ic="brand"></i></div>
+            <h1>铁砧 <span class="w-accent">IDE</span></h1>
             <p>好上手的本地代码编辑器 · 内置 Anvil 智能助手与本地模型</p>
             <div class="w-actions">
-              <button id="w-open" class="big-btn">📂 打开文件夹</button>
-              <button id="w-openfile" class="big-btn">📄 打开文件</button>
+              <button id="w-open" class="big-btn primary"><i data-ic="folderOpen"></i><span>打开文件夹</span></button>
+              <button id="w-openfile" class="big-btn"><i data-ic="fileCode"></i><span>打开文件</span></button>
             </div>
             <div class="w-tips">
-              <div>F5 或点「▶ 运行」一键编译运行（自动识别 C / C++ / Python / Java / Kotlin / JS / TS）</div>
+              <div><kbd>F5</kbd> 或点「运行」一键编译运行（自动识别 C / C++ / Python / Java / Kotlin / JS / TS）</div>
               <div>也可以把文件或文件夹直接拖进窗口，导入即可运行</div>
             </div>
             <div id="w-recent" class="w-recent"></div>
@@ -84,17 +88,17 @@
       </section>
       <aside id="debug-pane" aria-labelledby="debug-title" hidden>
         <header>
-          <h2 id="debug-title">C/C++ 调试</h2>
-          <button id="debug-hide" type="button" class="mini-btn" title="隐藏调试面板" aria-label="隐藏调试面板">×</button>
+          <h2 id="debug-title"><i data-ic="bug"></i>C/C++ 调试</h2>
+          <button id="debug-hide" type="button" class="mini-btn icon-only" title="隐藏调试面板" aria-label="隐藏调试面板"><i data-ic="x"></i></button>
         </header>
         <p id="debug-status" role="status"></p>
         <p id="debug-location"></p>
         <div id="debug-controls">
-          <button class="tb-btn" type="button" data-debug-action="continue" disabled>继续</button>
-          <button class="tb-btn" type="button" data-debug-action="next" disabled>单步越过</button>
-          <button class="tb-btn" type="button" data-debug-action="stepIn" disabled>单步进入</button>
-          <button class="tb-btn" type="button" data-debug-action="stepOut" disabled>单步跳出</button>
-          <button id="debug-stop" class="tb-btn stop" type="button" disabled>结束调试</button>
+          <button class="tb-btn" type="button" data-debug-action="continue" disabled><i data-ic="continue"></i><span>继续</span></button>
+          <button class="tb-btn" type="button" data-debug-action="next" disabled><i data-ic="stepOver"></i><span>单步越过</span></button>
+          <button class="tb-btn" type="button" data-debug-action="stepIn" disabled><i data-ic="stepInto"></i><span>单步进入</span></button>
+          <button class="tb-btn" type="button" data-debug-action="stepOut" disabled><i data-ic="stepOut"></i><span>单步跳出</span></button>
+          <button id="debug-stop" class="tb-btn stop" type="button" disabled><i data-ic="stop"></i><span>结束调试</span></button>
         </div>
         <section class="debug-variables" aria-labelledby="debug-variables-title">
           <h3 id="debug-variables-title">局部变量和参数</h3>
@@ -112,20 +116,20 @@
     <div id="console-wrap" class="collapsed">
       <div id="console-head">
         <div id="panel-tabs">
-          <button class="ptab active" data-panel="out">输出</button>
-          <button class="ptab" data-panel="term">终端</button>
+          <button class="ptab active" data-panel="out"><i data-ic="output"></i><span>输出</span></button>
+          <button class="ptab" data-panel="term"><i data-ic="terminal"></i><span>终端</span></button>
         </div>
         <span id="console-state"></span>
         <div class="spacer"></div>
-        <button id="console-clear" class="mini-btn" title="清空输出">清空</button>
-        <button id="console-toggle" class="mini-btn" title="收起 / 展开">▼</button>
+        <button id="console-clear" class="mini-btn icon-only" title="清空输出" aria-label="清空输出"><i data-ic="trash"></i></button>
+        <button id="console-toggle" class="mini-btn icon-only" title="收起 / 展开" aria-label="收起或展开面板"><i data-ic="chevronDown"></i></button>
       </div>
       <div id="console-body">
         <div id="console-out" class="console-out"><div class="hint">运行结果会显示在这里</div></div>
         <div id="console-input-row">
-          <span class="ci-label">输入</span>
+          <span class="ci-label">输入 ›</span>
           <input id="console-input" type="text" placeholder="程序等待输入时在这里输入，回车发送（scanf / input 会收到）" />
-          <button id="console-send" class="mini-btn">发送</button>
+          <button id="console-send" class="mini-btn accent"><i data-ic="send"></i><span>发送</span></button>
         </div>
       </div>
       <div id="term-body" class="hidden">
@@ -155,7 +159,7 @@
   </dialog>
   <dialog id="new-file-dialog" aria-labelledby="new-file-title">
     <form id="new-file-form">
-      <h2 id="new-file-title">新建文件</h2>
+      <h2 id="new-file-title"><i data-ic="filePlus"></i>新建文件</h2>
       <p id="new-file-folder"></p>
       <label for="new-file-name">文件名</label>
       <input id="new-file-name" type="text" placeholder="例如 hello.c 或 main.py" required autofocus />

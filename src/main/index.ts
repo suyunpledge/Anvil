@@ -44,11 +44,12 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#1b1e26',
+    backgroundColor: '#171b24',
     title: 'Anvil IDE',
     icon: path.join(__dirname, '../../resources/icon.ico'),
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#20242e', symbolColor: '#e8eaf0', height: 38 },
+    // 与界面标题栏（ui.css 的 --chrome）同色，系统窗口按钮才不会显得是另一块
+    titleBarOverlay: { color: '#151922', symbolColor: '#c9cfdc', height: 38 },
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
