@@ -1,5 +1,5 @@
 import './ui.css'
-import { $, el, showFeedback, showPanel, state } from './core'
+import { $, el, bus, showFeedback, showPanel, state } from './core'
 import { initExplorer, openFolder } from './explorer'
 import { initCursorStatus, saveActive, openFile, revealLine } from './editor'
 import { initRun } from './runpanel'
@@ -125,7 +125,72 @@ function attachListeners(): void {
       const wrap = $('console-wrap')
       if (termActive && !wrap.classList.contains('collapsed')) wrap.classList.add('collapsed')
       else void showConsolePanel('term').catch((error) => showFeedback(String(error)))
+    } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault()
+      $('app').classList.toggle('no-side')
+    } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'j') {
+      e.preventDefault()
+      $('console-wrap').classList.toggle('collapsed')
+    } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'w') {
+      e.preventDefault()
+      $('app').classList.remove('no-side')
+      bus.emit('ai:open', 'work')
+    } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault()
+      $('app').classList.remove('no-side')
+      bus.emit('ai:open', 'code')
     }
+  })
+  initResizers()
+}
+
+// —— 拖动调整：侧栏宽度（文件树 / AI 面板各记各的）、底部控制台高度；双击控制台标题栏收起 / 展开 ——
+function initResizers(): void {
+  const app = $('app')
+  const sidebar = $('sidebar')
+  const wrap = $('console-wrap')
+  const saved = (key: string): number => Number(localStorage.getItem('anvil.ui.' + key)) || 0
+  const apply = (): void => {
+    if (saved('side')) app.style.setProperty('--side-w', saved('side') + 'px')
+    if (saved('chat')) app.style.setProperty('--chat-w', saved('chat') + 'px')
+    if (saved('console')) app.style.setProperty('--console-h', saved('console') + 'px')
+  }
+  apply()
+  function drag(handle: HTMLElement, onMove: (e: PointerEvent) => void, cls: string): void {
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      handle.setPointerCapture(e.pointerId)
+      document.body.classList.add('resizing', cls)
+      const move = (ev: PointerEvent): void => onMove(ev)
+      const up = (): void => {
+        handle.removeEventListener('pointermove', move)
+        document.body.classList.remove('resizing', cls)
+      }
+      handle.addEventListener('pointermove', move)
+      handle.addEventListener('pointerup', up, { once: true })
+    })
+  }
+  const sideHandle = $('side-resizer')
+  drag(sideHandle, (ev) => {
+    const w = Math.round(Math.max(200, Math.min(window.innerWidth * 0.6, ev.clientX - sidebar.getBoundingClientRect().left)))
+    const key = sidebar.classList.contains('show-chat') ? 'chat' : 'side'
+    localStorage.setItem('anvil.ui.' + key, String(w))
+    apply()
+  }, 'col')
+  sideHandle.addEventListener('dblclick', () => {
+    localStorage.removeItem('anvil.ui.' + (sidebar.classList.contains('show-chat') ? 'chat' : 'side'))
+    app.style.removeProperty(sidebar.classList.contains('show-chat') ? '--chat-w' : '--side-w')
+  })
+  drag($('console-resizer'), (ev) => {
+    const bottom = wrap.getBoundingClientRect().bottom
+    const h = Math.round(Math.max(120, Math.min(window.innerHeight * 0.7, bottom - ev.clientY)))
+    wrap.classList.remove('collapsed')
+    localStorage.setItem('anvil.ui.console', String(h))
+    apply()
+  }, 'row')
+  $('console-head').addEventListener('dblclick', (e) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    wrap.classList.toggle('collapsed')
   })
 }
 

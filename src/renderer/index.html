@@ -37,6 +37,7 @@
       <button id="btn-stop" class="tb-btn stop" title="结束正在运行的程序" disabled><i data-ic="stop"></i><span>停止</span></button>
       <span id="lang-badge" class="lang-badge" title="当前文件类型">—</span>
       <div class="tb-spacer"></div>
+      <button id="btn-work" class="tb-btn work-entry" title="Work 文件整理（Ctrl+Shift+W）：授权一个文件夹，用一句话让本地 AI 批量查找、移动文件（可预览、可撤销）"><i data-ic="folders"></i><span>Work 整理</span></button>
       <span id="anvil-dot" class="anvil-dot off" title="本地 AI 模型状态">本地 AI</span>
     </div>
 
@@ -45,13 +46,15 @@
       <aside id="sidebar">
         <div id="side-tabs">
           <button class="side-tab active" data-pane="files"><i data-ic="files"></i><span>文件</span></button>
-          <button class="side-tab" data-pane="anvil"><i data-ic="chat"></i><span>AI 聊天</span></button>
+          <button class="side-tab" data-pane="anvil" title="AI 代码助手：读懂、检查、修改代码"><i data-ic="chat"></i><span>AI 助手</span></button>
+          <button class="side-tab" data-pane="anvil" data-mode="work" title="Work 文件整理：让 AI 批量查找、移动文件"><i data-ic="folders"></i><span>Work</span></button>
         </div>
         <div id="pane-files" class="side-pane active">
           <div id="file-tree" class="file-tree"><div class="hint">点击上方「打开文件夹」<br />选择你的代码文件夹</div></div>
         </div>
         <div id="pane-anvil" class="side-pane"></div>
       </aside>
+      <div id="side-resizer" class="resizer v" title="拖动调整宽度，双击恢复默认（Ctrl+B 显示 / 隐藏侧栏）"></div>
 
       <section id="editor-col">
         <div id="tabstrip" class="empty"></div>
@@ -64,6 +67,7 @@
             <div class="w-actions">
               <button id="w-open" class="big-btn primary"><i data-ic="folderOpen"></i><span>打开文件夹</span></button>
               <button id="w-openfile" class="big-btn"><i data-ic="fileCode"></i><span>打开文件</span></button>
+              <button id="w-work" class="big-btn work"><i data-ic="folders"></i><span>Work 整理文件</span></button>
             </div>
             <div class="w-tips">
               <div><kbd>F5</kbd> 或点「运行」一键编译运行（自动识别 C / C++ / Python / Java / Kotlin / JS / TS）</div>
@@ -114,6 +118,7 @@
 
     <!-- 输出控制台 -->
     <div id="console-wrap" class="collapsed">
+      <div id="console-resizer" class="resizer h" title="拖动调整高度（Ctrl+J 收起 / 展开，双击标题栏也可以）"></div>
       <div id="console-head">
         <div id="panel-tabs">
           <button class="ptab active" data-panel="out"><i data-ic="output"></i><span>输出</span></button>

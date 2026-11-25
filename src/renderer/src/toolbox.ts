@@ -58,6 +58,10 @@ export function initToolbox(options: {
     onError: feedback
   })
   const sections: Record<string, Tool[]> = {
+    AI: [
+      { title: '打开 AI 代码助手', run: () => bus.emit('ai:open', 'code') },
+      { title: '打开 Work 文件整理（批量查找 / 移动文件）', run: () => bus.emit('ai:open', 'work') }
+    ],
     导航: [
       { title: '在项目中搜索', shortcut: 'Ctrl+Shift+F', run: () => openPicker('search') },
       { title: '跳转到行', shortcut: 'Ctrl+G', available: hasFile, run: () => editorAction('editor.action.gotoLine') }

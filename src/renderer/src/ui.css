@@ -727,3 +727,138 @@ svg.brand-mark { width: 100%; height: 100%; display: block; }
 #chat-cancel { border-color: rgba(255, 107, 120, 0.45); color: var(--red); background: var(--red-bg); }
 #chat-status { color: var(--muted); overflow-wrap: anywhere; user-select: text; font-size: 12px; }
 #chat-status:empty { display: none; }
+
+/* —— AI 面板 · 模式与 Work 整理 —— */
+.sr-only { position: absolute !important; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; white-space: nowrap; }
+.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: 12px; background: var(--bg0); border: 1px solid var(--border); }
+.mode-btn {
+  display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 10px; text-align: left;
+  border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.mode-btn svg.ic { width: 18px; height: 18px; flex: none; }
+.mode-btn span { display: flex; flex-direction: column; min-width: 0; }
+.mode-btn b { font-size: 13px; color: inherit; }
+.mode-btn small { font-size: 11px; opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mode-btn:hover:not(:disabled):not(.active) { background: var(--panel2); color: var(--text2); }
+.mode-btn.active { color: var(--text); background: var(--panel2); border-color: var(--border2); box-shadow: 0 2px 8px rgba(4, 6, 12, 0.35); }
+.mode-btn.active[data-mode="code"] svg.ic { color: var(--accent); }
+.mode-btn.active[data-mode="work"] { border-color: rgba(255, 155, 69, 0.45); background: linear-gradient(135deg, rgba(255, 155, 69, 0.14), rgba(255, 155, 69, 0.04)); }
+.mode-btn.active[data-mode="work"] svg.ic { color: var(--ember); }
+.mode-btn:disabled { opacity: 0.4; cursor: default; }
+.mode-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.chat-config label { display: block; }
+.chat-config .mini-btn.icon-only { height: 32px; width: 32px; border-color: var(--border2); background: var(--panel2); }
+.chat-target { gap: 9px; border-style: solid; border-color: var(--border); }
+.target-ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--panel2); color: var(--muted); }
+.target-ico.on { color: var(--accent); background: var(--accent-bg); }
+#pane-anvil.work .target-ico.on { color: var(--ember); background: rgba(255, 155, 69, 0.14); }
+.target-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.target-text small { font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; color: var(--muted); }
+.target-text #chat-file { font-size: 12px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#pane-anvil.work #chat-select:not(:disabled) { border-color: rgba(255, 155, 69, 0.5); color: #ffd2a6; background: rgba(255, 155, 69, 0.1); }
+#pane-anvil.work #chat-select:not(:disabled):hover { border-color: var(--ember); color: #fff; }
+
+/* 引导卡片 */
+#chat-intro {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px;
+  background: linear-gradient(160deg, rgba(110, 143, 255, 0.09), rgba(110, 143, 255, 0.02)); border: 1px solid var(--border);
+}
+#pane-anvil.work #chat-intro { background: linear-gradient(160deg, rgba(255, 155, 69, 0.1), rgba(255, 155, 69, 0.02)); }
+.intro-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.intro-head svg.ic { width: 18px; height: 18px; color: var(--accent); }
+#pane-anvil.work .intro-head svg.ic { color: var(--ember); }
+.intro-desc { color: var(--text2); font-size: 12px; line-height: 1.75; }
+.intro-steps { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 6px; }
+.intro-steps li { counter-increment: s; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
+.intro-steps li::before {
+  content: counter(s); flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  font: 700 10.5px/1 var(--mono); color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent2));
+}
+#pane-anvil.work .intro-steps li::before { background: linear-gradient(135deg, #ffb066, #f07a2e); }
+.intro-examples { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.intro-examples small { font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; color: var(--muted); }
+.intro-chip {
+  max-width: 100%; padding: 6px 11px; text-align: left; border-radius: 9px; font-size: 12px; cursor: pointer;
+  color: var(--text2); background: var(--panel); border: 1px solid var(--border2); transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.intro-chip:hover { color: var(--text); border-color: var(--accent); background: var(--panel2); }
+#pane-anvil.work .intro-chip:hover { border-color: var(--ember); }
+#chat-log:empty { display: none; }
+
+/* 预览 */
+.preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.preview-head strong { color: var(--yellow); font-size: 12px; }
+#work-summary { display: flex; gap: 5px; }
+.pill { padding: 1px 8px; border-radius: 9px; font-size: 11px; font-weight: 700; }
+.pill.move { color: var(--green-hi); background: rgba(43, 196, 127, 0.14); }
+.pill.skip { color: var(--muted); background: var(--panel2); }
+.pill.conflict { color: var(--yellow); background: rgba(244, 181, 77, 0.15); }
+#chat-preview-file { display: block; margin: 2px 0 6px; }
+#pane-anvil.work #chat-preview { border-color: rgba(255, 155, 69, 0.4); }
+#pane-anvil.work .preview-head strong { color: var(--ember); }
+#work-moves { display: flex; flex-direction: column; gap: 4px; }
+.work-move-row { padding: 6px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); }
+.work-move-row[data-state="skip"] { opacity: 0.62; }
+.work-move-row[data-state="conflict"] { border-color: rgba(244, 181, 77, 0.45); background: rgba(244, 181, 77, 0.06); }
+.work-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.work-path { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 11.5px/1.5 var(--mono); color: var(--text); }
+.work-state { flex: none; padding: 0 7px; border-radius: 8px; font-size: 10.5px; font-weight: 700; color: var(--green-hi); background: rgba(43, 196, 127, 0.12); }
+.work-move-row[data-state="skip"] .work-state { color: var(--muted); background: var(--panel2); }
+.work-move-row[data-state="conflict"] .work-state { color: var(--yellow); background: rgba(244, 181, 77, 0.14); }
+#work-moves .work-choice { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0 0 24px; color: var(--yellow); font-size: 11.5px; letter-spacing: 0; }
+#work-moves .work-choice.bulk { margin: 0 0 4px; padding: 7px 9px; border-radius: 8px; color: var(--text2); background: var(--panel2); font-weight: 600; }
+.work-choice select {
+  flex: none; height: 26px; padding: 0 6px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border2); border-radius: 6px; font: inherit; font-size: 11.5px;
+}
+.work-choice select:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+.preview-actions { display: flex; gap: 8px; margin-top: 2px; }
+#pane-anvil.work #chat-apply { background: linear-gradient(180deg, #ffbe7a, #f08a3a) !important; color: #2a1405 !important; }
+
+/* 输入区 */
+#chat-form { display: flex; flex-direction: column; }
+.chat-layout textarea#chat-input { min-height: 56px; max-height: 200px; resize: none; }
+.chat-actions { flex-wrap: wrap; }
+.chat-hint { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-btn.ghost { border-color: transparent; background: transparent; }
+.mini-btn.ghost:hover:not(:disabled) { background: var(--panel2); border-color: var(--border2); }
+#pane-anvil.work #chat-send { background: linear-gradient(135deg, #ffad62, #f07a2e); box-shadow: 0 3px 12px rgba(240, 122, 46, 0.3); color: #2a1405; }
+#chat-status { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; background: var(--panel2); }
+#chat-status.error { color: #ffb3ba; background: var(--red-bg); border: 1px solid rgba(255, 107, 120, 0.35); }
+#pane-anvil.busy #chat-status:not(.error)::before {
+  content: ''; flex: none; width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid rgba(110, 143, 255, 0.25); border-top-color: var(--accent); animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 拖动调整：侧栏宽度 / 控制台高度；Ctrl+B 隐藏侧栏 */
+#sidebar { flex-basis: var(--side-w, 256px); }
+#sidebar.show-chat { flex-basis: var(--chat-w, clamp(310px, 32vw, 490px)); }
+#app.no-side #sidebar, #app.no-side #side-resizer { display: none; }
+#console-wrap { position: relative; flex-basis: var(--console-h, 248px); }
+#console-wrap.collapsed { flex-basis: 36px; }
+.resizer { position: relative; z-index: 6; flex: none; background: transparent; transition: background 0.15s; }
+.resizer.v { width: 4px; margin: 0 -2px; cursor: col-resize; }
+.resizer.h { position: absolute; left: 0; right: 0; top: -3px; height: 6px; cursor: row-resize; }
+.resizer:hover, body.resizing .resizer { background: rgba(110, 143, 255, 0.55); }
+#console-wrap.collapsed .resizer.h { cursor: n-resize; }
+body.resizing { user-select: none; }
+body.resizing #sidebar, body.resizing #console-wrap { transition: none; }
+body.resizing.col { cursor: col-resize; }
+body.resizing.row { cursor: row-resize; }
+body.resizing #editor, body.resizing #terminal { pointer-events: none; }
+
+/* 侧栏三个标签 */
+.side-tab { gap: 5px; font-size: 12.5px; }
+.side-tab[data-mode="work"].active svg.ic { color: var(--ember); }
+.side-tab[data-mode="work"].active::after { background: linear-gradient(90deg, #ffb066, #f07a2e); }
+
+/* 工具栏 / 欢迎页的 Work 入口 */
+.tb-btn.work-entry { color: #ffd2a6; border-color: rgba(255, 155, 69, 0.35); background: rgba(255, 155, 69, 0.08); }
+.tb-btn.work-entry svg.ic { color: var(--ember); }
+.tb-btn.work-entry:hover:not(:disabled) { color: #fff; border-color: var(--ember); background: rgba(255, 155, 69, 0.16); }
+.big-btn.work { border-color: rgba(255, 155, 69, 0.45); }
+.big-btn.work svg.ic { color: var(--ember); }
+.big-btn.work:hover { border-color: var(--ember); }
