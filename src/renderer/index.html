@@ -23,6 +23,8 @@
       <button id="btn-open" class="tb-btn" title="打开一个代码文件夹">📂 打开文件夹</button>
       <button id="btn-openfile" class="tb-btn" title="直接打开单个代码文件（也可以把文件直接拖进窗口）">📂 打开文件</button>
       <button id="btn-newfile" class="tb-btn" title="在当前文件夹新建文件">📄 新建文件</button>
+      <button id="btn-save" class="tb-btn" title="保存当前文件（Ctrl+S）" disabled>保存</button>
+      <button id="btn-quick-open" class="tb-btn" title="按文件名快速打开（Ctrl+P）">快速打开</button>
       <div class="tb-sep"></div>
       <button id="btn-run" class="run-btn" title="保存并编译运行当前文件 (F5)">
         ▶ 运行 <span class="run-key">F5</span>
@@ -39,7 +41,7 @@
       <aside id="sidebar">
         <div id="side-tabs">
           <button class="side-tab active" data-pane="files">文件</button>
-          <button class="side-tab" data-pane="anvil">Anvil</button>
+          <button class="side-tab" data-pane="anvil">AI 聊天</button>
         </div>
         <div id="pane-files" class="side-pane active">
           <div id="file-tree" class="file-tree"><div class="hint">点击上方「打开文件夹」<br />选择你的代码文件夹</div></div>
@@ -60,13 +62,50 @@
               <button id="w-openfile" class="big-btn">📄 打开文件</button>
             </div>
             <div class="w-tips">
-              <div>F5 或点「▶ 运行」一键编译运行（自动识别 C / C++ / Python / JS / Java）</div>
+              <div>F5 或点「▶ 运行」一键编译运行（自动识别 C / C++ / Python / Java / Kotlin / JS / TS）</div>
               <div>也可以把文件或文件夹直接拖进窗口，导入即可运行</div>
             </div>
             <div id="w-recent" class="w-recent"></div>
           </div>
+          <div id="toolbox">
+            <button id="toolbox-toggle" type="button" aria-label="工具箱" title="工具箱（可上下拖动）" aria-controls="toolbox-panel" aria-expanded="false">
+              <span class="toolbox-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </button>
+            <section id="toolbox-panel" aria-labelledby="toolbox-title" hidden>
+              <header>
+                <h2 id="toolbox-title">工具箱</h2>
+                <button id="toolbox-commands" type="button" title="搜索命令（Ctrl+Shift+P）">搜索命令</button>
+              </header>
+              <div id="toolbox-groups"></div>
+            </section>
+          </div>
+          <div id="ide-feedback" role="status" aria-live="polite"></div>
         </div>
       </section>
+      <aside id="debug-pane" aria-labelledby="debug-title" hidden>
+        <header>
+          <h2 id="debug-title">C/C++ 调试</h2>
+          <button id="debug-hide" type="button" class="mini-btn" title="隐藏调试面板" aria-label="隐藏调试面板">×</button>
+        </header>
+        <p id="debug-status" role="status"></p>
+        <p id="debug-location"></p>
+        <div id="debug-controls">
+          <button class="tb-btn" type="button" data-debug-action="continue" disabled>继续</button>
+          <button class="tb-btn" type="button" data-debug-action="next" disabled>单步越过</button>
+          <button class="tb-btn" type="button" data-debug-action="stepIn" disabled>单步进入</button>
+          <button class="tb-btn" type="button" data-debug-action="stepOut" disabled>单步跳出</button>
+          <button id="debug-stop" class="tb-btn stop" type="button" disabled>结束调试</button>
+        </div>
+        <section class="debug-variables" aria-labelledby="debug-variables-title">
+          <h3 id="debug-variables-title">局部变量和参数</h3>
+          <p id="debug-empty"></p>
+          <dl id="debug-values"></dl>
+        </section>
+        <details id="debug-diagnostic" hidden>
+          <summary>诊断详情</summary>
+          <pre id="debug-detail"></pre>
+        </details>
+      </aside>
     </div>
 
     <!-- 输出控制台 -->
@@ -97,13 +136,36 @@
 
     <!-- 状态栏 -->
     <footer id="statusbar">
-      <span id="st-compiler">编译器：探测中…</span>
+      <button type="button" id="st-compiler" title="检查运行环境">运行环境探测中…</button>
       <span id="st-anvil">Anvil：未连接</span>
       <div class="spacer"></div>
       <span id="st-cursor">行 1，列 1</span>
       <span id="st-encoding">UTF-8</span>
     </footer>
   </div>
+  <dialog id="quick-dialog" aria-labelledby="quick-title">
+    <form id="quick-form">
+      <h2 id="quick-title"></h2>
+      <button id="quick-close" type="button" aria-label="关闭">×</button>
+      <input id="quick-input" type="text" role="combobox" aria-autocomplete="list" aria-controls="quick-results" aria-expanded="false" autocomplete="off" spellcheck="false" maxlength="200" autofocus />
+      <button id="quick-search" class="tb-btn" type="submit" hidden>搜索</button>
+    </form>
+    <div id="quick-results" role="listbox" aria-labelledby="quick-title"></div>
+    <p id="quick-status" role="status"></p>
+  </dialog>
+  <dialog id="new-file-dialog" aria-labelledby="new-file-title">
+    <form id="new-file-form">
+      <h2 id="new-file-title">新建文件</h2>
+      <p id="new-file-folder"></p>
+      <label for="new-file-name">文件名</label>
+      <input id="new-file-name" type="text" placeholder="例如 hello.c 或 main.py" required autofocus />
+      <p id="new-file-error" role="alert"></p>
+      <div class="new-file-actions">
+        <button id="new-file-cancel" class="tb-btn" type="button">取消</button>
+        <button id="new-file-submit" class="tb-btn" type="submit">创建</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

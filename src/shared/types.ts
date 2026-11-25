@@ -8,15 +8,32 @@ export interface FsEntry {
 }
 
 export interface ReadResult {
+  canonicalPath?: string
   text: string
   encoding: 'utf-8' | 'gbk' | 'latin1'
 }
 
+export interface WorkspaceFile {
+  path: string
+  relative: string
+}
+
+export interface WorkspaceMatch extends WorkspaceFile {
+  line: number
+  column: number
+  preview: string
+}
+
+export interface WorkspaceResults<T> {
+  items: T[]
+  limited: boolean
+}
+
 export interface CompilerInfo {
-  kind: 'gcc' | 'g++' | 'python' | 'node' | 'java'
+  kind: 'gcc' | 'g++' | 'python' | 'node' | 'java' | 'kotlin' | 'typescript'
   path: string
   version: string
-  /** Java 编译器配套的 java 可执行文件。 */
+  /** 配套的 JVM 或 Node.js 可执行文件。 */
   runtimePath?: string
 }
 
@@ -44,6 +61,19 @@ export interface RunStartResult {
   compileNeeded: boolean
   compiler: CompilerInfo | null
   reason?: string
+}
+
+export type DebugAction = 'continue' | 'next' | 'stepIn' | 'stepOut'
+export type DebugPhase = 'building' | 'running' | 'paused' | 'stopping' | 'ended' | 'error'
+
+export interface DebugSnapshot {
+  id: number
+  file: string
+  phase: DebugPhase
+  message: string
+  location?: { file: string; line: number; functionName: string }
+  variables: Array<{ name: string; value: string; argument: boolean }>
+  details?: string
 }
 
 // Anvil SSE 事件（宽松类型：不同 kind 载荷不同，渲染层按 kind 分支）

@@ -1,11 +1,12 @@
 import { $, el, showPanel } from './core'
 import { saveActive, activeTab, revealLine } from './editor'
+import { languageKind, languageNames } from '../../shared/languages'
 import type { CompilerInfo, OutChunk, ExitInfo } from '../../shared/types'
 
 // —— 一键运行 + 输出控制台 + 报错跳行 ——
 
 let runSid: number | null = null
-let compilers: CompilerInfo[] = []
+let startingRun = false
 
 const GCC_RE = /^(.+?):(\d+):(\d+):\s*(error|warning|note|fatal error):\s*(.+)$/gm
 
@@ -14,6 +15,7 @@ function out(text: string, cls?: string): void {
   if (box.querySelector('.hint')) box.innerHTML = ''
   const line = el('div', cls, text)
   box.append(line)
+  while (box.childElementCount > 500) box.firstElementChild?.remove()
   box.scrollTop = box.scrollHeight
 }
 
@@ -33,18 +35,45 @@ function setRunning(on: boolean, sid?: number): void {
 }
 
 export async function initRun(): Promise<void> {
-  // 编译器状态探测
-  compilers = await window.ide.detectCompilers()
-  const gcc = compilers.find((c) => c.kind === 'g++') || compilers.find((c) => c.kind === 'gcc')
-  const py = compilers.find((c) => c.kind === 'python')
-  const jdk = compilers.find((c) => c.kind === 'java')
-  const parts: string[] = []
-  if (gcc) parts.push(`C/C++ ✓ ${gcc.version.slice(0, 40)}`)
-  if (py) parts.push(`Python ✓ ${py.version}`)
-  if (jdk) parts.push(`Java ✓ ${jdk.version.slice(0, 40)}`)
-  $('st-compiler').textContent = parts.length ? parts.join(' · ') : '未检测到编译器（C/C++ 需要 MinGW）'
+  const status = $('st-compiler') as HTMLButtonElement
+  async function checkEnvironment(showDetails: boolean): Promise<void> {
+    status.disabled = true
+    try {
+      const tools = await window.ide.detectCompilers()
+      const kinds = Object.keys(languageNames) as CompilerInfo['kind'][]
+      const details = kinds.map(kind => {
+        const tool = tools.find(candidate => candidate.kind === kind)
+        return languageNames[kind] + '  ' + (tool ? tool.version + '  ' + tool.path : '未找到运行环境')
+      }).join('\n')
+      status.textContent = `运行环境 ${tools.length}/${kinds.length} 就绪`
+      status.title = '点击重新检查\n' + details
+      if (showDetails) {
+        $('console-wrap').classList.remove('collapsed')
+        showPanel('out')
+        out(details, 'co-dim')
+      }
+    } catch (error) {
+      status.textContent = '重新检查运行环境'
+      status.title = String(error)
+    } finally { status.disabled = false }
+  }
+  status.onclick = () => void checkEnvironment(true)
+  void checkEnvironment(false)
 
-  $('btn-run').addEventListener('click', () => void doRun())
+  $('btn-run').addEventListener('click', async () => {
+    if (startingRun || runSid !== null) return
+    startingRun = true
+    const button = $('btn-run') as HTMLButtonElement
+    button.disabled = true
+    try { await doRun() }
+    catch (error) {
+      $('console-wrap').classList.remove('collapsed')
+      out('[启动失败] ' + String(error), 'co-err')
+    } finally {
+      startingRun = false
+      button.disabled = runSid !== null
+    }
+  })
   $('btn-stop').addEventListener('click', () => {
     if (runSid !== null) void window.ide.killRun(runSid)
   })
@@ -100,6 +129,8 @@ export async function initRun(): Promise<void> {
       'g++': '没有找到 C++ 编译器。请先安装 MinGW-w64。',
       python: '没有找到可用的 Python（含项目 .venv）。请安装 Python 3 或修复项目虚拟环境后重试。',
       node: '没有找到 Node.js。',
+      typescript: '需要 Node.js 和 IDE 配套的 tsx。',
+      kotlin: '需要完整 JDK 和 Kotlin/JVM 编译器。',
       java: '没有找到完整 JDK（需要同目录的 javac 与 java）。请安装 JDK 后重试。'
     }
     out(`[无法运行] ${hint[need] ?? '没有可用的编译器/解释器'}`, 'co-err')
@@ -115,8 +146,8 @@ async function doRun(): Promise<void> {
     return
   }
   const ext = tab.path.split('.').pop()?.toLowerCase() ?? ''
-  if (!['c', 'cpp', 'cc', 'cxx', 'py', 'js', 'mjs', 'java'].includes(ext)) {
-    out(`[暂不支持运行 .${ext} 文件，支持 C / C++ / Python / JavaScript / Java]`, 'co-dim')
+  if (!languageKind(tab.path)) {
+    out(`[暂不支持运行 .${ext} 文件，支持 C / C++ / Python / Java / Kotlin / JavaScript / TypeScript]`, 'co-dim')
     $('console-wrap').classList.remove('collapsed')
     return
   }
@@ -150,7 +181,9 @@ export function renderCompilerErrors(text: string): void {
     const [, file, line, col, level, msg] = m
     const row = el('div', 'co-err')
     const link = el('span', 'err-link', `${file.split(/[\\/]/).pop()}:${line}:${col}`)
-    link.addEventListener('click', () => revealLine(file, Number(line), Number(col)))
+    link.addEventListener('click', () => {
+      void revealLine(file, Number(line), Number(col)).catch((error) => out(String(error), 'co-err'))
+    })
     row.append(link, document.createTextNode(` ${level}: ${msg}`))
     box.append(row)
   }

@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "installer": "npm run build && electron-builder --config packaging/windows.cjs --win nsis --x64 --publish never",
     "start": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -17,12 +18,16 @@
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
-    "monaco-editor": "^0.52.0"
+    "monaco-editor": "^0.52.0",
+    "tsx": "4.23.15"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "electron": "^33.2.0",
+    "electron-builder": "26.0.12",
     "electron-vite": "^2.3.0",
+    "node-win-x64": "24.19.0",
+    "rcedit": "5.0.2",
     "typescript": "^5.6.0",
     "vite": "^5.4.0"
   },

@@ -1,17 +1,24 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
-  AnvilStatus,
-  ApiResponse,
   CompilerInfo,
+  DebugAction,
+  DebugSnapshot,
   ExitInfo,
   FsEntry,
   OutChunk,
   ReadResult,
   RunStartResult,
-  WoEvent
+  WorkspaceFile,
+  WorkspaceMatch,
+  WorkspaceResults
 } from '../shared/types'
 
 const api = {
+  takePendingFiles: (): Promise<string[]> => ipcRenderer.invoke('file:take-pending'),
+  onPendingFiles: (cb: () => void) => {
+    ipcRenderer.on('file:pending', cb)
+    return () => ipcRenderer.removeListener('file:pending', cb)
+  },
   openFolder: (): Promise<string | null> => ipcRenderer.invoke('folder:open'),
   openFileDialog: (): Promise<string | null> => ipcRenderer.invoke('file:open'),
   recentFolders: (): Promise<{
@@ -24,6 +31,10 @@ const api = {
   rememberFile: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:remember', p),
 
   listDir: (dir: string): Promise<FsEntry[]> => ipcRenderer.invoke('fs:list', dir),
+  workspaceFiles: (dir: string): Promise<WorkspaceResults<WorkspaceFile>> =>
+    ipcRenderer.invoke('workspace:files', dir),
+  searchWorkspace: (dir: string, query: string): Promise<WorkspaceResults<WorkspaceMatch>> =>
+    ipcRenderer.invoke('workspace:search', dir, query),
   readFile: (p: string): Promise<ReadResult> => ipcRenderer.invoke('fs:read', p),
   writeFile: (p: string, text: string): Promise<boolean> => ipcRenderer.invoke('fs:write', p, text),
   createEntry: (parent: string, name: string, isDir: boolean): Promise<string> =>
@@ -37,13 +48,27 @@ const api = {
   sendInput: (sid: number, line: string): Promise<boolean> => ipcRenderer.invoke('run:input', sid, line),
   killRun: (sid: number): Promise<boolean> => ipcRenderer.invoke('run:kill', sid),
 
-  anvilStatus: (): Promise<AnvilStatus> => ipcRenderer.invoke('anvil:status'),
-  anvilEnsure: (): Promise<AnvilStatus> => ipcRenderer.invoke('anvil:ensure'),
-  anvilApi: <T = unknown>(method: string, urlPath: string, body?: unknown): Promise<ApiResponse<T>> =>
-    ipcRenderer.invoke('anvil:api', method, urlPath, body),
-  anvilWatch: (woId: string): Promise<boolean> => ipcRenderer.invoke('anvil:watch', woId),
-  anvilUnwatch: (woId: string): Promise<boolean> => ipcRenderer.invoke('anvil:unwatch', woId),
+  debugStart: (file: string, lines: number[]): Promise<number> => ipcRenderer.invoke('debug:start', file, lines),
+  debugAction: (id: number, action: DebugAction): Promise<void> => ipcRenderer.invoke('debug:action', id, action),
+  debugBreakpoint: (id: number, line: number, enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke('debug:breakpoint', id, line, enabled),
+  debugStop: (id: number): Promise<void> => ipcRenderer.invoke('debug:stop', id),
+  onDebugState: (cb: (state: DebugSnapshot) => void) => {
+    const listener = (_event: unknown, state: DebugSnapshot) => cb(state)
+    ipcRenderer.on('debug:state', listener)
+    return () => ipcRenderer.removeListener('debug:state', listener)
+  },
 
+  chatModels: (): Promise<string[]> => ipcRenderer.invoke('chat:models'),
+  chatRelease: (): Promise<void> => ipcRenderer.invoke('chat:release'),
+  chatSelect: (suggested?: string): Promise<{ file: string; undo: boolean } | null> => ipcRenderer.invoke('chat:select', suggested),
+  chatSend: (model: string, prompt: string): Promise<{
+    needsFile: boolean; answer: string; tools: string[]; patch: { id: string; old: string; replacement: string } | null
+  }> => ipcRenderer.invoke('chat:send', model, prompt),
+  chatApply: (id: string): Promise<{ text: string; undo: boolean }> => ipcRenderer.invoke('chat:apply', id),
+  chatUndo: (): Promise<{ text: string; undo: boolean }> => ipcRenderer.invoke('chat:undo'),
+  chatDiscard: (): Promise<void> => ipcRenderer.invoke('chat:discard'),
+  chatCancel: (): Promise<void> => ipcRenderer.invoke('chat:cancel'),
   termStart: (cwd: string | null): Promise<{ sid: number; cwd: string }> =>
     ipcRenderer.invoke('term:start', cwd),
   termWrite: (sid: number, data: string): Promise<boolean> => ipcRenderer.invoke('term:in', sid, data),
@@ -70,11 +95,6 @@ const api = {
     const l = (_e: unknown, info: { need: string }) => cb(info)
     ipcRenderer.on('run:no-compiler', l)
     return () => ipcRenderer.removeListener('run:no-compiler', l)
-  },
-  onAnvilEvent: (cb: (payload: { woId: string; ev: WoEvent }) => void) => {
-    const l = (_e: unknown, payload: { woId: string; ev: WoEvent }) => cb(payload)
-    ipcRenderer.on('anvil:event', l)
-    return () => ipcRenderer.removeListener('anvil:event', l)
   }
 }
 

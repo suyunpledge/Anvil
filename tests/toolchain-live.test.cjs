@@ -12,7 +12,7 @@ const root = require('node:fs').mkdtempSync(path.join(os.tmpdir(), 'anvil-toolch
 esbuild.buildSync({ entryPoints: ['runner', 'toolchains', 'term-host', 'output-buffer'].map(name => path.join(__dirname, '../src/main', name + '.ts')),
   outdir: root, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], logLevel: 'silent' })
 const originalLoad = Module._load
-Module._load = function (name, ...args) { return name === 'electron' ? { app: { getPath: () => root } } : originalLoad.call(this, name, ...args) }
+Module._load = function (name, ...args) { return name === 'electron' ? { app: { getPath: () => root, getAppPath: () => path.resolve(__dirname, '..') } } : originalLoad.call(this, name, ...args) }
 const runner = require(path.join(root, 'runner.js'))
 const tools = require(path.join(root, 'toolchains.js'))
 const terminal = require(path.join(root, 'term-host.js'))
@@ -56,9 +56,9 @@ async function run(file, prompt, input) {
   } finally { clearTimeout(timer) }
 }
 
-test('discovers complete Python, C, C++ and Java toolchains', async () => {
+test('discovers all seven configured language toolchains', async () => {
   const found = await runner.detectCompilers(true)
-  for (const kind of ['python', 'gcc', 'g++', 'java']) assert.ok(found.some(tool => tool.kind === kind), `missing ${kind}`)
+  for (const kind of ['python', 'gcc', 'g++', 'java', 'node', 'typescript', 'kotlin']) assert.ok(found.some(tool => tool.kind === kind), `missing ${kind}`)
   assert.ok(found.find(tool => tool.kind === 'java').runtimePath)
 })
 
@@ -91,6 +91,53 @@ test('real Java compiles a package and dependent source with the matched JDK', a
   assert.equal(result.exit.code, 0, result.err)
   assert.match(result.out, /你好同学42/)
   assert.equal(result.started.compiler.kind, 'java')
+})
+
+test('Kotlin JVM application and script support Unicode paths and standard input', async () => {
+  const dir = await project('中文 Kotlin project')
+  const file = path.join(dir, '示例.kt')
+  await fs.writeFile(file, 'package sample\nfun main() { println("输入名字:"); println("你好" + readln()) }')
+  const app = await run(file, '输入名字:', '同学')
+  assert.equal(app.exit.code, 0, app.err)
+  assert.match(app.out, /你好同学/)
+  const script = path.join(dir, '示例.kts')
+  await fs.writeFile(script, 'println("脚本=" + (40 + 2))')
+  const result = await run(script)
+  assert.equal(result.exit.code, 0, result.err)
+  assert.match(result.out, /脚本=42/)
+})
+
+test('Node runs JavaScript in both module systems with project-local imports', async () => {
+  const dir = await project('中文 JS project')
+  await fs.writeFile(path.join(dir, 'package.json'), '{"type":"module"}')
+  for (const [name, source] of Object.entries({
+    'helper.cjs': 'module.exports = 41',
+    'main.js': 'import n from "./helper.cjs"; console.log("答案=" + (n + 1))',
+    'main.mjs': 'import "./main.js"',
+    'main.cjs': 'console.log("答案=" + (require("./helper.cjs") + 1))'
+  })) await fs.writeFile(path.join(dir, name), source)
+  for (const name of ['main.js', 'main.mjs', 'main.cjs']) {
+    const result = await run(path.join(dir, name))
+    assert.equal(result.exit.code, 0, result.err)
+    assert.match(result.out, /答案=42/)
+  }
+})
+
+test('TypeScript resolves project imports, tsconfig paths, enums and TSX', async () => {
+  const dir = await project('中文 TS project')
+  await fs.writeFile(path.join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: {
+    paths: { '@lib': ['./helper.ts'] }, jsxFactory: 'element'
+  } }))
+  await fs.writeFile(path.join(dir, 'helper.ts'), 'export enum Value { Answer = 42 }')
+  for (const name of ['main.ts', 'main.mts', 'main.cts', 'main.tsx']) {
+    const file = path.join(dir, name)
+    const expression = name.endsWith('tsx') ? 'function element(tag: string) { return tag }; console.log(<hello />);' : ''
+    await fs.writeFile(file, 'import { Value } from "@lib"; console.log("答案=" + Value.Answer);' + expression)
+    const result = await run(file)
+    assert.equal(result.exit.code, 0, result.err)
+    assert.match(result.out, /答案=42/)
+    if (name.endsWith('tsx')) assert.match(result.out, /hello/)
+  }
 })
 
 test('real Python selects the project venv and streams interactive UTF-8', async () => {
@@ -130,13 +177,16 @@ test('compile failures never run and Python failures retain traceback plus click
   assert.match(failed.err, /bad\.py:1:1: error:/)
 })
 
-test('real terminal exposes discovered javac and gcc without changing global PATH', async () => {
+test('real terminal exposes Kotlin, Node, TypeScript, Java and GCC', async () => {
   const dir = await project('terminal workspace')
   let output = ''
   terminal.bindWindow({ isDestroyed: () => false, webContents: { send: (_channel, event) => { output += event.data } } })
   const session = await terminal.startTerm(dir)
-  assert.equal(terminal.writeTerm(session.sid, 'javac -version\r\ngcc --version\r\necho ANVIL_TERMINAL_DONE\r\n'), true)
+  assert.equal(terminal.writeTerm(session.sid, 'javac -version\r\ngcc --version\r\nnode --version\r\ntsc --version\r\ntsx --version\r\nkotlinc -version\r\necho ANVIL_TERMINAL_DONE\r\n'), true)
   for (let i = 0; i < 500 && !output.includes('ANVIL_TERMINAL_DONE'); i++) await delay(20)
+  assert.match(output, /kotlinc-jvm \d/)
+  assert.match(output, /tsx v?\d/)
+  assert.match(output, /Version \d+\.\d+/i)
   assert.match(output, /javac \d/)
   assert.match(output, /gcc.*\d/s)
   terminal.killTerm(session.sid)

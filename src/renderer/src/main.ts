@@ -1,20 +1,19 @@
 import './ui.css'
-import { $, el } from './core'
+import { $, el, showFeedback, showPanel, state } from './core'
 import { initExplorer, openFolder } from './explorer'
-import { initCursorStatus, activeTab, saveActive, openFile } from './editor'
+import { initCursorStatus, saveActive, openFile, revealLine } from './editor'
 import { initRun } from './runpanel'
 import { initAnvilPanel } from './anvilpanel'
 import { initTerminal, activateTerminal } from './terminal'
+import { initToolbox } from './toolbox'
+import { initDebugger } from './debugger'
 
 type Panel = 'out' | 'term'
 
-function showPanel(p: Panel): void {
-  document.querySelectorAll('.ptab').forEach((b) => {
-    b.classList.toggle('active', (b as HTMLElement).dataset.panel === p)
-  })
-  $('console-body').classList.toggle('hidden', p !== 'out')
-  $('term-body').classList.toggle('hidden', p !== 'term')
-  if (p === 'term') void activateTerminal()
+async function showConsolePanel(p: Panel): Promise<void> {
+  showPanel(p)
+  $('console-wrap').classList.remove('collapsed')
+  if (p === 'term') await activateTerminal()
 }
 
 async function step(name: string, fn: () => Promise<void> | void): Promise<void> {
@@ -31,24 +30,39 @@ async function bootstrap(): Promise<void> {
   await step('explorer', () => initExplorer())
   await step('cursor', () => initCursorStatus())
   await step('terminal', () => initTerminal())
-  await step('run', () => initRun())
+  void step('run', () => initRun())
   await step('anvil', () => initAnvilPanel())
 
   // —— 恢复上一次会话（独立容错：恢复失败不影响其他功能）——
   await step('restore', async () => {
     const recent = await window.ide.recentFolders()
-    if (recent.lastFolder) await openFolder(recent.lastFolder)
-    if (recent.lastFile) await openFile(recent.lastFile)
+    if (recent.lastFolder && !state.folder) await openFolder(recent.lastFolder)
+    if (recent.lastFile && !state.openFile) await openFile(recent.lastFile)
   })
+  // Requests received during startup stay in the main-process queue until restore finishes.
+  let opening = Promise.resolve()
+  const drain = () => {
+    opening = opening.then(async () => {
+      for (const file of await window.ide.takePendingFiles()) {
+        try {
+          await openFile(file)
+          await window.ide.rememberFile(file)
+        } catch (error) { showFeedback('打开文件失败：' + file + ' · ' + String(error)) }
+      }
+    }).catch(error => showFeedback(String(error)))
+  }
+  window.ide.onPendingFiles(drain)
+  drain()
   await step('welcome-recent', () => buildWelcomeRecents())
-
-  void activeTab()
 }
 
 function attachListeners(): void {
   // —— 面板 Tab ——
   document.querySelectorAll('.ptab').forEach((b) => {
-    b.addEventListener('click', () => showPanel(((b as HTMLElement).dataset.panel ?? 'out') as Panel))
+    b.addEventListener('click', () => {
+      void showConsolePanel(((b as HTMLElement).dataset.panel ?? 'out') as Panel)
+        .catch((error) => showFeedback(String(error)))
+    })
   })
 
   // —— 打开文件夹 / 打开文件 ——
@@ -78,36 +92,99 @@ function attachListeners(): void {
     }
   })
 
-  // —— 新建文件 ——
-  $('btn-newfile').addEventListener('click', async () => {
-    const { state } = await import('./core')
-    if (!state.folder) {
-      alert('请先打开一个文件夹（或直接拖一个文件进来）')
-      return
+  initNewFile(openFolderDlg)
+  initToolbox({
+    debug: initDebugger(),
+    showPanel: showConsolePanel,
+    openFile: async (path, line, column) => {
+      if (line === undefined) await openFile(path)
+      else await revealLine(path, line, column)
+      await window.ide.rememberFile(path)
     }
-    const name = prompt('新文件名（例如 hello.c / main.py）：')
-    if (!name) return
-    try {
-      const p = await window.ide.createEntry(state.folder, name, false)
-      await openFolder(state.folder)
-      await openFile(p)
-    } catch (e) {
-      alert(String(e))
-    }
+  })
+  $('btn-save').addEventListener('click', () => {
+    void saveActive().then((file) => { if (file) showFeedback('已保存') })
+      .catch((error) => showFeedback('保存失败：' + String(error)))
   })
 
   // —— F5 运行；Ctrl+S 保存；Ctrl+` 切终端 ——
   window.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented || e.isComposing || document.querySelector('dialog[open]')) return
     if (e.key === 'F5') {
       e.preventDefault()
       ;($('btn-run') as HTMLButtonElement).click()
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault()
-      void saveActive()
+      $('btn-save').click()
     } else if (e.ctrlKey && e.key === '`') {
       e.preventDefault()
       const termActive = document.querySelector('.ptab.active')?.getAttribute('data-panel') === 'term'
-      showPanel(termActive ? 'out' : 'term')
+      const wrap = $('console-wrap')
+      if (termActive && !wrap.classList.contains('collapsed')) wrap.classList.add('collapsed')
+      else void showConsolePanel('term').catch((error) => showFeedback(String(error)))
+    }
+  })
+}
+
+function initNewFile(openFolderDlg: () => Promise<void>): void {
+  const button = $('btn-newfile') as HTMLButtonElement
+  const dialog = $('new-file-dialog') as HTMLDialogElement
+  const field = $('new-file-name') as HTMLInputElement
+  const submit = $('new-file-submit') as HTMLButtonElement
+  const cancel = $('new-file-cancel') as HTMLButtonElement
+  const error = $('new-file-error')
+  let targetFolder: string | null = null
+
+  button.addEventListener('click', async () => {
+    button.disabled = true
+    try {
+      if (!state.folder) await openFolderDlg()
+      targetFolder = state.folder
+      if (!targetFolder) return
+      $('new-file-folder').textContent = targetFolder
+      field.value = ''
+      error.textContent = ''
+      dialog.showModal()
+    } catch (e) {
+      alert('无法打开新建文件窗口：' + String(e))
+    } finally {
+      button.disabled = false
+    }
+  })
+  field.addEventListener('input', () => { error.textContent = '' })
+  cancel.addEventListener('click', () => dialog.close())
+  dialog.addEventListener('cancel', (e) => {
+    if (submit.disabled) e.preventDefault()
+  })
+  $('new-file-form').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const parent = targetFolder
+    if (!parent || submit.disabled) return
+    const name = field.value.trim()
+    if (!name || /[<>:"/\\|?*]/.test(name) || name.endsWith('.')) {
+      error.textContent = '请输入有效的文件名，例如 hello.c。'
+      field.focus()
+      return
+    }
+
+    let file: string
+    submit.disabled = cancel.disabled = field.readOnly = true
+    try {
+      file = await window.ide.createEntry(parent, name, false)
+    } catch (e) {
+      const detail = String(e)
+      error.textContent = detail.includes('EEXIST') ? '同名文件或文件夹已存在。' : '创建失败：' + detail
+      field.focus()
+      return
+    } finally {
+      submit.disabled = cancel.disabled = field.readOnly = false
+    }
+    dialog.close()
+    try {
+      if (state.folder === parent) await openFolder(parent)
+      await openFile(file)
+    } catch (e) {
+      alert('文件已创建，但无法打开：' + String(e))
     }
   })
 }

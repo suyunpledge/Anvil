@@ -33,6 +33,14 @@ export function el(tag: string, cls?: string, text?: string): HTMLElement {
   return n
 }
 
+let feedbackTimeout: ReturnType<typeof setTimeout>
+export function showFeedback(message: string): void {
+  const area = $('ide-feedback')
+  area.textContent = message
+  clearTimeout(feedbackTimeout)
+  feedbackTimeout = setTimeout(() => { area.textContent = '' }, 4500)
+}
+
 // 底部面板切换（输出 / 终端）
 export function showPanel(p: 'out' | 'term'): void {
   document.querySelectorAll('.ptab').forEach((b) => {

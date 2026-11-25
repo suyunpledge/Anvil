@@ -4,6 +4,12 @@
 
 不使用 VSCode 自家工作台界面——从标题栏到状态栏全部自研，为「第一次写代码的人」设计。
 
+## Windows 安装
+
+双击 `AnvilIDE-Setup-0.1.0-win-x64.exe` 即可安装到当前用户。右键代码文件，选择「打开方式 → Anvil IDE」。已打开的窗口会在新标签页接收文件。要设为默认编辑器，在 Windows 选择器中选择「始终」。
+
+安装包内含 Electron、Node.js、tsx 和 TypeScript。C/C++、Python、Java、Kotlin 和 AI 聊天使用本机的相应工具链或 Ollama 模型。在 Windows x64 构建机上运行 `npm ci` 和 `npm run installer`，可在 `dist` 目录生成安装包。
+
 ## 为什么好上手
 
 | 痛点 | 铁砧 IDE 的答案 |

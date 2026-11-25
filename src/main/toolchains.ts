@@ -2,6 +2,9 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { app } from 'electron'
+import { languageKind } from '../shared/languages'
+export { languageKind } from '../shared/languages'
 import type { CompilerInfo } from '../shared/types'
 import { stopProcess } from './process-host'
 
@@ -76,19 +79,55 @@ async function discover(): Promise<CompilerInfo[]> {
     }
     return null
   }
-  const tools = await Promise.all([
+  const [gcc, cpp, python, node, java] = await Promise.all([
     find('gcc', ['gcc', 'clang'], [...pathDirs, ...known]),
     find('g++', ['g++', 'clang++'], [...pathDirs, ...known]),
     find('python', ['python', 'python3'], [...pathDirs, ...pythonDirs]),
-    find('node', ['node'], pathDirs), find('java', ['javac'], [...jdks.slice(0, process.env.JAVA_HOME ? 1 : 0), ...pathDirs, ...jdks])
+    find('node', ['node'], [...pathDirs, ...(app.isPackaged ? [path.join(process.resourcesPath, 'runtime/bin')] : []),
+      path.join(process.env.ProgramFiles || 'C:/Program Files', 'nodejs')]), find('java', ['javac'], [...jdks.slice(0, process.env.JAVA_HOME ? 1 : 0), ...pathDirs, ...jdks])
   ])
-  return tools.filter((tool): tool is CompilerInfo => tool !== null)
+  const [kotlin, typescript] = await Promise.all([
+    java?.runtimePath ? findKotlin(java.runtimePath, pathDirs) : null,
+    node ? findTypeScript(node.path) : null
+  ])
+  return [gcc, cpp, python, node, java, kotlin, typescript].filter((tool): tool is CompilerInfo => tool !== null)
 }
 
-export function languageKind(file: string): CompilerInfo['kind'] | null {
-  const ext = path.extname(file).toLowerCase()
-  return ({ '.c': 'gcc', '.cpp': 'g++', '.cc': 'g++', '.cxx': 'g++', '.py': 'python',
-    '.java': 'java', '.js': 'node', '.mjs': 'node', '.cjs': 'node' } as Record<string, CompilerInfo['kind']>)[ext] || null
+export function kotlinArgs(jar: string): string[] {
+  const lib = path.dirname(jar)
+  return ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8',
+    '-Dkotlin.home=' + path.dirname(lib), '-cp', path.join(lib, '*'), 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler']
+}
+
+async function findKotlin(java: string, pathDirs: string[]): Promise<CompilerInfo | null> {
+  const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData/Local')
+  const installed = await children(path.join(local, 'AnvilIDE/toolchains/kotlin'))
+  installed.sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))
+  const homes = [process.env.KOTLIN_HOME, ...pathDirs.map(dir => path.dirname(dir)),
+    ...installed.map(dir => path.join(dir, 'kotlinc'))]
+  for (const home of new Set(homes)) {
+    if (!home) continue
+    const jar = path.join(home, 'lib/kotlin-compiler.jar')
+    if (!await exists(jar)) continue
+    const version = await probe(java, [...kotlinArgs(jar), '-version'])
+    if (version) return { kind: 'kotlin', path: jar, version: version.replace(/^info: /, ''), runtimePath: java }
+  }
+  return null
+}
+
+async function findTypeScript(node: string): Promise<CompilerInfo | null> {
+  try {
+    const runtime = app.isPackaged ? path.join(process.resourcesPath, 'runtime') : app.getAppPath()
+    const cli = require.resolve('tsx/cli', { paths: [runtime] })
+    const version = await probe(node, [cli, '--version'])
+    return version ? { kind: 'typescript', path: cli, runtimePath: node, version } : null
+  } catch { return null }
+}
+
+function binDirectory(tool: CompilerInfo): string {
+  if (tool.kind === 'kotlin') return path.resolve(path.dirname(tool.path), '../bin')
+  if (tool.kind === 'typescript') return app.isPackaged ? path.join(process.resourcesPath, 'runtime/bin') : path.join(app.getAppPath(), 'node_modules/.bin')
+  return path.dirname(tool.path)
 }
 
 export function compilerFor(file: string, tools: CompilerInfo[]): CompilerInfo | null {
@@ -124,12 +163,21 @@ export async function resolveCompiler(file: string): Promise<CompilerInfo | null
   return compilerFor(file, await detectCompilers())
 }
 
+export async function resolveGdb(compiler: CompilerInfo): Promise<string | null> {
+  const pathDirs = (process.env.PATH || '').split(path.delimiter).map(dir => dir.trim().replace(/^"|"$/g, '')).filter(Boolean)
+  for (const dir of new Set([path.dirname(compiler.path), ...pathDirs, ...known])) {
+    const exe = path.resolve(dir, 'gdb' + suffix)
+    if (await exists(exe) && await probe(exe, ['--version'])) return exe
+  }
+  return null
+}
+
 export async function toolEnvironment(directory: string, selected?: CompilerInfo): Promise<NodeJS.ProcessEnv> {
   const tools = await detectCompilers()
   const python = selected?.kind === 'python' ? selected.path : await projectPython(directory)
   const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1', PYTHONUTF8: '1' }
   const dirs = [...new Set([...(python ? [path.dirname(python)] : []),
-    ...(selected ? [path.dirname(selected.path)] : []), ...tools.map(tool => path.dirname(tool.path))])]
+    ...(selected ? [binDirectory(selected)] : []), ...tools.map(binDirectory)])]
   const originalPath = process.env.PATH || ''
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key]
   env.PATH = [...dirs, originalPath].filter(Boolean).join(path.delimiter)

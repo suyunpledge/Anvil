@@ -6,7 +6,7 @@ import { app } from 'electron'
 import type { CompilerInfo, OutChunk, ExitInfo, RunStartResult } from '../shared/types'
 import { stopProcess } from './process-host'
 import { OutputBuffer } from './output-buffer'
-import { languageKind, resolveCompiler, toolEnvironment, shutdownToolchains } from './toolchains'
+import { kotlinArgs, languageKind, resolveCompiler, toolEnvironment, shutdownToolchains } from './toolchains'
 export { detectCompilers, compilerFor } from './toolchains'
 
 type Emit = (chunk: OutChunk | ExitInfo) => void
@@ -26,7 +26,7 @@ export async function startRun(file: string, emit: Emit,
   const sid = nextSid++
   const kind = languageKind(file)
   const failure = (reason: string): RunStartResult => ({ sid, compiler: null, compileNeeded: false, reason })
-  if (!kind) return failure('支持 C / C++ / Python / Java / JavaScript 源文件')
+  if (!kind) return failure('支持 C / C++ / Python / Java / Kotlin / JavaScript / TypeScript 源文件')
   file = path.resolve(file)
   let compiler: CompilerInfo | null
   let env: NodeJS.ProcessEnv
@@ -128,11 +128,24 @@ export async function startRun(file: string, emit: Emit,
     try {
       if (session.cancelled || stopping) { finish(null, 'SIGTERM'); return }
       if (compiler.kind === 'python') { run(compiler.path, ['-u', '-X', 'utf8', file]); return }
-      if (compiler.kind === 'node') { run(compiler.path, [file]); return }
+      if (compiler.kind === 'node') { run(compiler.path, ['--enable-source-maps', file]); return }
+      if (compiler.kind === 'typescript') {
+        run(compiler.runtimePath!, [compiler.path, file])
+        return
+      }
+      if (compiler.kind === 'kotlin' && path.extname(file).toLowerCase() === '.kts') {
+        run(compiler.runtimePath!, [...kotlinArgs(compiler.path), '-script', file])
+        return
+      }
       const root = path.join(path.dirname(file), '.anvilide')
       await fs.mkdir(root, { recursive: true })
       buildDir = await fs.mkdtemp(path.join(root, 'run-'))
-      if (compiler.kind === 'java') {
+      if (compiler.kind === 'kotlin') {
+        const jar = path.join(buildDir, 'program.jar')
+        const java = compiler.runtimePath!
+        compile(java, [...kotlinArgs(compiler.path), file, '-include-runtime', '-d', jar], () =>
+          run(java, ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8', '-jar', jar]))
+      } else if (compiler.kind === 'java') {
         if (!compiler.runtimePath) throw new Error('需要包含 java 与 javac 的完整 JDK')
         const pkg = javaPackage(await fs.readFile(file, 'utf8'))
         const mainClass = [pkg, path.basename(file, path.extname(file))].filter(Boolean).join('.')
@@ -160,7 +173,7 @@ export async function startRun(file: string, emit: Emit,
   }
   // 先返回会话 ID，让 IPC 响应先于短程序的输出进入消息队列。
   setImmediate(() => { void prepare() })
-  return { sid, compiler, compileNeeded: !['python', 'node'].includes(compiler.kind) }
+  return { sid, compiler, compileNeeded: ['gcc', 'g++', 'java'].includes(compiler.kind) || (compiler.kind === 'kotlin' && path.extname(file).toLowerCase() === '.kt') }
 }
 
 export function sendInput(sid: number, line: string): boolean {

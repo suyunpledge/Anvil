@@ -17,7 +17,7 @@ esbuild.buildSync({
 })
 const originalLoad = Module._load
 Module._load = function (name, ...args) {
-  return name === 'electron' ? { app: { getPath: () => buildDir } } : originalLoad.call(this, name, ...args)
+  return name === 'electron' ? { app: { getPath: () => buildDir, getAppPath: () => path.resolve(__dirname, '..') } } : originalLoad.call(this, name, ...args)
 }
 const { BackendClient } = require(path.join(buildDir, 'anvil-client.js'))
 const { WorkOrderSubscription } = require(path.join(buildDir, 'anvil-events.js'))
@@ -98,6 +98,27 @@ test('concurrent starts launch once and pass the configured port', async t => {
   assert.deepEqual(args, ['anvil.py', '--port', String(f.location().anvilPort)])
   host.shutdown()
   assert.equal(child.killed, true)
+})
+
+test('backend default comes first and missing local models are marked unavailable', async t => {
+  let online = true
+  const f = await fixture(t, (req, res) => {
+    if (req.url === '/health') json(res, { ok: true, wos: 0, core: {} })
+    else if (req.url === '/presets') json(res, { default: 'qwen-coder', profiles: [
+      { key: 'qwen3.5', model: 'qwen3.5:9b', label: 'Qwen3.5' },
+      { key: 'qwen-coder', model: 'qwen2.5-coder:7b', label: 'Qwen Coder' }
+    ] })
+    else json(res, { ollama: online, available_models: online ? ['qwen2.5-coder:7b'] : null })
+  })
+  const host = new AnvilHost(f.location)
+  t.after(() => host.shutdown())
+  const state = await host.status()
+  assert.equal(state.adapters[0].key, 'qwen-coder')
+  assert.equal(state.adapters[0].bad, false)
+  assert.equal(state.adapters[1].bad, true)
+  online = false
+  host.metaAt = 0
+  assert.ok((await host.status()).adapters.every(adapter => adapter.bad))
 })
 
 test('missing environment and early process failure resolve instead of hanging', async t => {

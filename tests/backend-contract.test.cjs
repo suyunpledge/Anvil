@@ -76,7 +76,8 @@ uvicorn.Server(uvicorn.Config(app, log_level='error')).run(sockets=[sock])
   assert.equal(health.status, 200, errors)
   const presets = await client.request('GET', '/presets')
   assert.equal(presets.status, 200)
-  assert.equal(presets.data.default, 'qwen3.5')
+  assert.equal(presets.data.default, 'qwen-coder')
+  assert.equal(presets.data.profiles.find(item => item.key === presets.data.default).model, 'qwen2.5-coder:7b')
   assert.ok(presets.data.profiles.some(item => item.key === presets.data.default))
   const created = await client.request('POST', '/wo', {
     workdir: ready.project, target: 'calc.py', test_path: 'test_calc.py', task: '实现平均值'

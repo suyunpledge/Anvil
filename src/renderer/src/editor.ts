@@ -1,10 +1,23 @@
 import * as monaco from 'monaco-editor'
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import { bus, state, $, el } from './core'
 
-self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
+self.MonacoEnvironment = {
+  getWorker(_moduleId, label) {
+    if (label === 'json') return new JsonWorker()
+    if (label === 'css' || label === 'scss' || label === 'less') return new CssWorker()
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new HtmlWorker()
+    if (label === 'typescript' || label === 'javascript') return new TypeScriptWorker()
+    return new EditorWorker()
+  }
+}
 
 export interface Tab {
+  canonicalPath: string
   path: string
   model: monaco.editor.ITextModel
   encoding: string
@@ -31,7 +44,7 @@ const editor = monaco.editor.create($('editor'), {
 
 const LANG_BY_EXT: Record<string, string> = {
   c: 'cpp', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', h: 'cpp', hpp: 'cpp',
-  py: 'python', js: 'javascript', mjs: 'javascript', ts: 'typescript',
+  py: 'python', js: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'typescript', kt: 'kotlin', kts: 'kotlin',
   json: 'json', md: 'markdown', html: 'html', css: 'css',
   java: 'java', go: 'go', rs: 'rust', sh: 'shell', bat: 'bat',
   toml: 'ini', ini: 'ini'
@@ -39,7 +52,7 @@ const LANG_BY_EXT: Record<string, string> = {
 
 const LANG_LABEL: Record<string, string> = {
   cpp: 'C/C++', python: 'Python', javascript: 'JavaScript', typescript: 'TypeScript',
-  json: 'JSON', markdown: 'Markdown', html: 'HTML', css: 'CSS', java: 'Java',
+  json: 'JSON', markdown: 'Markdown', html: 'HTML', css: 'CSS', java: 'Java', kotlin: 'Kotlin',
   go: 'Go', rust: 'Rust', shell: 'Shell', bat: '批处理', ini: '配置'
 }
 
@@ -55,6 +68,10 @@ function langLabel(p: string): string {
 
 export function isDirty(t: Tab): boolean {
   return cleanVersion.get(t.path) !== t.model.getAlternativeVersionId()
+}
+
+export function hasUnsavedTabs(): boolean {
+  return tabs.some(isDirty)
 }
 
 function refreshWelcome(): void {
@@ -84,6 +101,8 @@ function renderStrip(): void {
     })
     strip.append(tabEl)
   }
+  ;($('btn-save') as HTMLButtonElement).disabled = !active
+  bus.emit('tabs:changed')
 }
 
 function activate(t: Tab): void {
@@ -98,6 +117,7 @@ function activate(t: Tab): void {
   renderStrip()
   refreshWelcome()
   bus.emit('tab:active', t.path)
+  bus.emit('tree:active', t.path)
 }
 
 export async function openFile(p: string): Promise<void> {
@@ -107,17 +127,42 @@ export async function openFile(p: string): Promise<void> {
     return
   }
   const r = await window.ide.readFile(p)
+  const canonicalPath = r.canonicalPath ?? p
+  const opened = tabs.find((t) => t.canonicalPath === canonicalPath)
+  if (opened) {
+    activate(opened)
+    return
+  }
   const model = monaco.editor.createModel(r.text, langOfPath(p), monaco.Uri.file(p))
   cleanVersion.set(p, model.getAlternativeVersionId())
-  model.onDidChangeContent(() => renderStrip())
-  const t: Tab = { path: p, model, encoding: r.encoding, viewState: null }
+  const t: Tab = { path: p, canonicalPath, model, encoding: r.encoding, viewState: null }
+  model.onDidChangeContent(() => {
+    const badge = Array.from($('tabstrip').children).find((n) => (n.firstElementChild as HTMLElement)?.title === p)
+      ?.querySelector('.dirty')
+    if (badge) badge.textContent = isDirty(t) ? '●' : ''
+    bus.emit('tabs:changed')
+  })
   tabs.push(t)
   activate(t)
-  bus.emit('tree:active', p)
 }
 
 export function activeTab(): Tab | null {
   return active
+}
+
+export async function updateFromChat(file: string, write: () => Promise<{ text: string; undo: boolean }>): Promise<boolean> {
+  const same = (p: string) => p.replaceAll('\\', '/').toLowerCase() === file.replaceAll('\\', '/').toLowerCase()
+  const matching = () => tabs.filter(t => same(t.canonicalPath))
+  if (matching().some(isDirty)) throw new Error('目标标签有未保存修改，请先保存并重新核对提议')
+  if (active && same(active.canonicalPath) && editor.getRawOptions().readOnly) throw new Error('请先结束该文件的调试')
+  const result = await write()
+  for (const tab of matching()) {
+    if (isDirty(tab)) continue
+    tab.model.setValue(result.text)
+    cleanVersion.set(tab.path, tab.model.getAlternativeVersionId())
+  }
+  renderStrip()
+  return result.undo
 }
 
 export function closeTab(t: Tab): void {
@@ -135,6 +180,7 @@ export function closeTab(t: Tab): void {
       editor.setModel(null)
       renderStrip()
       refreshWelcome()
+      bus.emit('tree:active', null)
     }
   } else {
     renderStrip()
@@ -142,19 +188,35 @@ export function closeTab(t: Tab): void {
 }
 
 export async function saveActive(): Promise<string | null> {
-  if (!active) return null
-  await window.ide.writeFile(active.path, active.model.getValue())
-  cleanVersion.set(active.path, active.model.getAlternativeVersionId())
-  renderStrip()
-  return active.path
+  const tab = active
+  if (!tab) return null
+  await saveTab(tab)
+  return tab.path
 }
 
-export function revealLine(p: string, line: number, col?: number): void {
-  void openFile(p).then(() => {
-    editor.revealLineInCenter(line)
-    editor.setPosition({ lineNumber: line, column: col ?? 1 })
-    editor.focus()
-  })
+async function saveTab(tab: Tab): Promise<void> {
+  const version = tab.model.getAlternativeVersionId()
+  await window.ide.writeFile(tab.canonicalPath, tab.model.getValue(undefined, true))
+  if (tabs.includes(tab)) cleanVersion.set(tab.path, version)
+  renderStrip()
+}
+
+export async function saveAll(): Promise<number> {
+  const dirty = tabs.filter(isDirty)
+  const results = await Promise.allSettled(dirty.map(saveTab))
+  const failures = results.flatMap((result, index) =>
+    result.status === 'rejected' ? [dirty[index].path.split(/[\\/]/).pop()] : []
+  )
+  if (failures.length) throw new Error('保存失败：' + failures.join('、'))
+  return dirty.length
+}
+
+export async function revealLine(p: string, line: number, col?: number): Promise<void> {
+  await openFile(p)
+  const position = editor.getModel()!.validatePosition({ lineNumber: line, column: col ?? 1 })
+  editor.setPosition(position)
+  editor.revealPositionInCenter(position)
+  editor.focus()
 }
 
 export function initCursorStatus(): void {

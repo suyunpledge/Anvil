@@ -51,7 +51,13 @@ export function initTerminal(): void {
   }).observe(host)
 }
 
-async function ensureSession(): Promise<void> {
+let opening: Promise<void> | undefined
+function ensureSession(): Promise<void> {
+  if (!opening) opening = openSession().finally(() => { opening = undefined })
+  return opening
+}
+
+async function openSession(): Promise<void> {
   if (sid !== null && (await window.ide.termAlive(sid))) return
   const base =
     state.folder ||

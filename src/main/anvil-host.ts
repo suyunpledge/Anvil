@@ -98,12 +98,15 @@ export class AnvilHost {
       this.request<Record<string, unknown>>('GET', '/presets'), this.request<Record<string, unknown>>('GET', '/integrations')
     ])
     this.adapters = []
+    const available = integrations.status === 200 && Array.isArray(integrations.data?.available_models)
+      ? new Set(integrations.data.available_models as string[]) : null
     if (presets.status === 200 && presets.data) {
       const raw = presets.data.profiles || presets.data.presets || presets.data
       const unusable = presets.data.unusable
       this.adapters = (Array.isArray(raw) ? raw : []).filter((item) => typeof item?.key === 'string').map((item) => ({
         key: item.key, label: item.label || item.key,
-        bad: Boolean(item.bad || (Array.isArray(unusable) ? unusable.includes(item.model)
+        bad: Boolean(item.bad || (available && typeof item.model === 'string' && !available.has(item.model))
+          || integrations.data?.ollama === false || (Array.isArray(unusable) ? unusable.includes(item.model)
           : unusable && typeof unusable === 'object' && item.model in unusable))
       }))
       const preferred = presets.data.default

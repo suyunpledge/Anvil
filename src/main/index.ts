@@ -3,19 +3,33 @@ import path from 'node:path'
 import fs from 'node:fs'
 import * as fsSvc from './fs-service'
 import * as runner from './runner'
-import * as anvil from './anvil-host'
+import * as debug from './debug-host'
+import { registerChat } from './chat-host'
 import * as term from './term-host'
 import { loadSettings, rememberFolder, rememberFile } from './settings'
 import type { OutChunk, ExitInfo } from '../shared/types'
 
 let win: BrowserWindow | null = null
+let cancelChat: (() => void) | undefined
 
 // 单实例：重复双击快捷方式时把已有窗口拉到前台
-if (!app.requestSingleInstanceLock()) {
+// Explorer supplies one or more quoted paths. Keep the original argument boundaries
+// when Electron forwards a launch to the already-running process.
+const launchFiles = process.argv.slice(process.defaultApp ? 2 : 1)
+  .filter(arg => arg && !arg.startsWith('-'))
+  .map(arg => path.resolve(arg))
+const pendingFiles = new Set(launchFiles)
+const primaryInstance = app.requestSingleInstanceLock({ files: launchFiles })
+if (!primaryInstance) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (win) {
+  app.on('second-instance', (_event, _argv, _cwd, data) => {
+    const files = (data as { files?: unknown })?.files
+    if (Array.isArray(files)) {
+      for (const file of files) if (typeof file === 'string' && path.isAbsolute(file)) pendingFiles.add(file)
+    }
+    if (win && !win.isDestroyed()) {
+      if (pendingFiles.size) win.webContents.send('file:pending')
       if (win.isMinimized()) win.restore()
       win.show()
       win.focus()
@@ -39,7 +53,7 @@ function createWindow(): void {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       spellcheck: false
     }
   })
@@ -50,24 +64,32 @@ function createWindow(): void {
   win.webContents.on('console-message', (_e, level, message) => {
     if (level >= 2) console.error(`[renderer-console] ${message}`)
   })
-  win.webContents.on('render-process-gone', (_e, details) =>
-    console.error(`[main-bc] render-process-gone reason=${details.reason}`))
+  win.webContents.on('render-process-gone', (_e, details) => {
+    cancelChat?.()
+    console.error(`[main-bc] render-process-gone reason=${details.reason}`)
+  })
+  win.webContents.on('did-start-navigation', event => {
+    if (event.isMainFrame && !event.isSameDocument) cancelChat?.()
+  })
   // 兜底：ready-to-show 3 秒未到也强制显示，避免窗口永远隐藏
-  setTimeout(() => {
-    if (win && !win.isVisible() && !win.isDestroyed()) {
+  const openingWindow = win
+  const fallback = setTimeout(() => {
+    if (!openingWindow.isDestroyed() && !openingWindow.isVisible()) {
       console.error('[main-bc] fallback-show')
-      win.show()
+      openingWindow.show()
     }
   }, 3000)
+  openingWindow.once('closed', () => clearTimeout(fallback))
+  win.webContents.on('will-navigate', (event) => event.preventDefault())
   term.bindWindow(win)
   // 外部链接交给系统浏览器
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url).catch(console.error)
     return { action: 'deny' }
   })
   // ELECTRON_RENDERER_URL 由 electron-vite dev 注入
   const devUrl = process.env.ELECTRON_RENDERER_URL
-  if (devUrl) {
+  if (!app.isPackaged && devUrl) {
     void win.loadURL(devUrl)
   } else {
     void win.loadFile(path.join(__dirname, '../renderer/index.html'))
@@ -82,30 +104,37 @@ const __diagBc = (m: string): void => console.error(`[main-bc] ${m} t=${Date.now
 __diagBc('modules-loaded')
 
 app.whenReady().then(() => {
+  if (!primaryInstance) return
   __diagBc('whenReady')
   // 自研界面：移除 Electron 默认菜单栏，保留系统窗口按钮（titleBarOverlay）
   Menu.setApplicationMenu(null)
-  createWindow()
-  __diagBc('window-created')
   registerIpc()
   __diagBc('ipc-registered')
+  createWindow()
+  __diagBc('window-created')
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
-  anvil.shutdown()
+  cancelChat?.()
   app.quit()
 })
 
 app.on('before-quit', () => {
-  anvil.shutdown()
+  cancelChat?.()
+  debug.shutdown()
   runner.shutdownAll()
   term.shutdownAll()
 })
 
 function registerIpc(): void {
+  ipcMain.handle('file:take-pending', () => {
+    const files = [...pendingFiles]
+    pendingFiles.clear()
+    return files
+  })
   // —— 文件夹与文件 ——
   ipcMain.handle('folder:open', async () => {
     const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })
@@ -124,7 +153,7 @@ function registerIpc(): void {
     const r = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: [
-        { name: '程序文件', extensions: ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'py', 'java', 'js', 'ts', 'json', 'md', 'txt'] },
+        { name: '程序文件', extensions: ['c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'py', 'java', 'kt', 'kts', 'js', 'mjs', 'cjs', 'ts', 'mts', 'cts', 'tsx', 'json', 'md', 'txt'] },
         { name: '所有文件', extensions: ['*'] }
       ]
     })
@@ -146,6 +175,8 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('fs:list', (_e, dir: string) => fsSvc.listDir(dir))
+  ipcMain.handle('workspace:files', (_e, dir: string) => fsSvc.workspaceFiles(dir))
+  ipcMain.handle('workspace:search', (_e, dir: string, query: string) => fsSvc.searchWorkspace(dir, query))
   ipcMain.handle('fs:read', (_e, p: string) => fsSvc.readFileSmart(p))
   ipcMain.handle('fs:write', async (_e, p: string, text: string) => {
     await fsSvc.writeFileSmart(p, text)
@@ -170,20 +201,14 @@ function registerIpc(): void {
   ipcMain.handle('run:input', (_e, sid: number, line: string) => runner.sendInput(sid, line))
   ipcMain.handle('run:kill', (_e, sid: number) => runner.killRun(sid))
 
-  // —— Anvil ——
-  ipcMain.handle('anvil:status', () => anvil.status())
-  ipcMain.handle('anvil:ensure', () => anvil.ensure())
-  ipcMain.handle('anvil:api', (_e, method: string, urlPath: string, body?: unknown) =>
-    anvil.request(method, urlPath, body)
-  )
-  ipcMain.handle('anvil:watch', (_e, woId: string) => {
-    anvil.watchWo(woId, win)
-    return true
-  })
-  ipcMain.handle('anvil:unwatch', (_e, woId: string) => {
-    anvil.unwatchWo(woId)
-    return true
-  })
+  ipcMain.handle('debug:start', (event, file: string, lines: number[]) => debug.start(file, lines, (state) => {
+    if (!event.sender.isDestroyed()) event.sender.send('debug:state', state)
+  }))
+  ipcMain.handle('debug:action', (_event, id: number, action: Parameters<typeof debug.act>[1]) => debug.act(id, action))
+  ipcMain.handle('debug:breakpoint', (_event, id: number, line: number, enabled: boolean) => debug.setBreakpoint(id, line, enabled))
+  ipcMain.handle('debug:stop', (_event, id: number) => debug.stop(id))
+
+  cancelChat = registerChat(() => win!)
 
   // —— 终端 ——
   ipcMain.handle('term:start', (_e, cwd: string | null) => term.startTerm(cwd))

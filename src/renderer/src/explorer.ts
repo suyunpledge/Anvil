@@ -5,6 +5,7 @@ import type { FsEntry } from '../../shared/types'
 // —— 文件树：懒加载目录，双击/单击打开文件 ——
 
 const expanded = new Set<string>()
+const pending = new WeakMap<HTMLElement, symbol>()
 let activeFile: string | null = null
 
 function iconFor(e: FsEntry): string {
@@ -19,22 +20,27 @@ function iconFor(e: FsEntry): string {
 }
 
 async function loadChildren(dir: string, container: HTMLElement): Promise<void> {
-  container.innerHTML = ''
+  const request = Symbol()
+  pending.set(container, request)
   let entries: FsEntry[] = []
   try {
     entries = await window.ide.listDir(dir)
   } catch (err) {
-    container.append(el('div', 'hint', '读取失败：' + String(err)))
+    if (pending.get(container) === request) container.replaceChildren(el('div', 'hint', '读取失败：' + String(err)))
     return
   }
+  if (pending.get(container) !== request) return
+  container.replaceChildren()
   for (const e of entries) {
     const row = el('div', 'tree-item')
     row.dataset.path = e.path
+    row.classList.toggle('active', !e.isDir && e.path === activeFile)
     row.append(el('span', 'ico', iconFor(e)))
     const name = el('span', '', e.name)
     name.style.overflow = 'hidden'
     name.style.textOverflow = 'ellipsis'
     row.append(name)
+    container.append(row)
     row.addEventListener('click', async () => {
       if (e.isDir) {
         if (expanded.has(e.path)) {
@@ -60,22 +66,17 @@ async function loadChildren(dir: string, container: HTMLElement): Promise<void> 
       row.after(kids)
       void loadChildren(e.path, kids)
     }
-    container.append(row)
   }
 }
 
 export async function openFolder(folder: string | null): Promise<void> {
   if (!folder) return
+  if (state.folder !== folder) {
+    expanded.clear()
+    $('file-tree').replaceChildren()
+  }
   state.folder = folder
   $('title-folder').textContent = folder
-  expanded.clear()
-  // 打开新文件夹时只展开根目录第一层
-  try {
-    const entries = await window.ide.listDir(folder)
-    for (const e of entries) if (e.isDir) expanded.add(e.path)
-  } catch {
-    /* 根目录读取失败也能展示错误 */
-  }
   await loadChildren(folder, $('file-tree'))
 }
 
