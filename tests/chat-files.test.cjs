@@ -45,10 +45,10 @@ test('local model repairs invalid tool requests before producing a reviewable ch
   const { generate } = require(bundle)
   const replies = [
     { action: 'replace', old: 'n', replacement: 'x', path: 'another.py' },
-    { action: 'replace', old: 'n', replacement: 'x' },
     { action: 'find', old: 'return' },
     { action: 'read', line: 2 },
-    { action: 'replace', old: 'return n', replacement: 'return n + 1' }
+    { action: 'replace', old: 'n', replacement: 'n + 1' },
+    { action: 'choose', candidate: 3 }
   ]
   const inputs = []
   t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -59,10 +59,11 @@ test('local model repairs invalid tool requests before producing a reviewable ch
   const before = 'n = 1\r\nreturn n\r\n'
   const result = await generate('test-coder', 'edit', 'sample.py', before, [], new AbortController().signal)
   assert.match(inputs[1], /额外字段/)
-  assert.match(inputs[2], /唯一匹配/)
-  assert.equal(JSON.parse(inputs[3]).startLine, 2)
-  assert.equal(JSON.parse(inputs[4]).text, 'return n\n')
-  assert.deepEqual(result.tools, ['已读取授权文件', '搜索文本', '读取片段', '提议替换'])
+  assert.equal(JSON.parse(inputs[2]).startLine, 2)
+  assert.equal(JSON.parse(inputs[3]).text, 'return n\n')
+  assert.equal(JSON.parse(inputs[4]).candidates.length, 3)
+  assert.equal(result.draft.line, 2)
+  assert.deepEqual(result.tools, ['已读取授权文件', '搜索文本', '读取片段', '定位第 2 行', '提议替换'])
   assert.equal(result.draft.after, 'n = 1\r\nreturn n + 1\r\n')
   const ask = (prompt, file = '') => generate('test-coder', prompt, file, file ? before : '', [], new AbortController().signal)
   const count = inputs.length
@@ -81,5 +82,13 @@ test('local model repairs invalid tool requests before producing a reviewable ch
   assert.equal(stalled.needsFile, false)
   assert.match(stalled.answer, /已读取「sample.py」/)
   assert.equal(stalled.draft, undefined)
+  replies.push({ action: 'replace', old: '1', replacement: '9' }, { action: 'reply', message: '值为 1' })
+  const readOnly = await ask('只解释变量 n，不要修改代码。', 'sample.py')
+  assert.equal(readOnly.draft, undefined)
+  assert.match(inputs.at(-1), /只读/)
+  replies.push({ action: 'replace', old: 'n', replacement: 'other' }, { action: 'choose', candidate: 99 },
+    { action: 'reply', message: '请确认目标行。' })
+  assert.equal((await ask('更名', 'sample.py')).draft, undefined)
+  assert.match(inputs.at(-1), /候选位置无效/)
   assert.equal(replies.length, 0)
 })

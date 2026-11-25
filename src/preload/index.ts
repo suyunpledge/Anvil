@@ -12,6 +12,7 @@ import type {
   WorkspaceMatch,
   WorkspaceResults
 } from '../shared/types'
+import type { WorkChoice, WorkPreview } from '../shared/types'
 
 const api = {
   takePendingFiles: (): Promise<string[]> => ipcRenderer.invoke('file:take-pending'),
@@ -60,10 +61,19 @@ const api = {
   },
 
   chatModels: (): Promise<string[]> => ipcRenderer.invoke('chat:models'),
+  workSelect: (): Promise<{ file: string; undo: boolean } | null> => ipcRenderer.invoke('work:select'),
+  workSend: (model: string, prompt: string): Promise<{ answer: string; preview: WorkPreview | null }> =>
+    ipcRenderer.invoke('work:send', model, prompt),
+  workChoice: (id: string, target: number | 'conflicts', choice: WorkChoice): Promise<WorkPreview> =>
+    ipcRenderer.invoke('work:choice', id, target, choice),
+  workApply: (id: string, open: string[]): Promise<{ preview: WorkPreview | null; moved:number; skipped:number }> =>
+    ipcRenderer.invoke('work:apply', id, open),
+  workUndo: (open: string[]): Promise<boolean> => ipcRenderer.invoke('work:undo', open),
+  workCanUndo: (): Promise<boolean> => ipcRenderer.invoke('work:canUndo'),
   chatRelease: (): Promise<void> => ipcRenderer.invoke('chat:release'),
   chatSelect: (suggested?: string): Promise<{ file: string; undo: boolean } | null> => ipcRenderer.invoke('chat:select', suggested),
   chatSend: (model: string, prompt: string): Promise<{
-    needsFile: boolean; answer: string; tools: string[]; patch: { id: string; old: string; replacement: string } | null
+    needsFile: boolean; answer: string; tools: string[]; patch: { id: string; line: number; old: string; replacement: string } | null
   }> => ipcRenderer.invoke('chat:send', model, prompt),
   chatApply: (id: string): Promise<{ text: string; undo: boolean }> => ipcRenderer.invoke('chat:apply', id),
   chatUndo: (): Promise<{ text: string; undo: boolean }> => ipcRenderer.invoke('chat:undo'),

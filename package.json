@@ -1,6 +1,6 @@
 {
   "name": "anvil-ide",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "Anvil IDE — VSCode 开源编辑器内核(Monaco) + 自研中文界面 + Anvil 本地模型编码代理",
   "main": "./out/main/index.js",
   "author": "ku-suyun",
@@ -8,12 +8,14 @@
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
+    "bench:chat": "node tests/model-tools.live.cjs",
     "build": "electron-vite build",
     "installer": "npm run build && electron-builder --config packaging/windows.cjs --win nsis --x64 --publish never",
     "start": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "bench:work": "node tests/work-models.live.cjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

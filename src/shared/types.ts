@@ -82,3 +82,18 @@ export interface WoEvent {
   wo_id?: string
   [key: string]: unknown
 }
+export type WorkChoice = 'move' | 'skip' | 'rename'
+export interface WorkPreviewRow {
+  fileId: number
+  from: string
+  requested: string
+  to: string | null
+  choice: WorkChoice
+  reason: string
+  canKeep: boolean
+  conflict: boolean
+}
+export interface WorkPreview {
+  id: string
+  rows: WorkPreviewRow[]
+}

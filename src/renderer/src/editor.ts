@@ -25,6 +25,7 @@ export interface Tab {
 }
 
 const tabs: Tab[] = []
+export const openEditorFiles = () => tabs.map(tab => tab.canonicalPath)
 let active: Tab | null = null
 // 脏标记：保存时的 alternativeVersionId 与当前不一致 = 有未保存修改
 const cleanVersion = new Map<string, number>()
