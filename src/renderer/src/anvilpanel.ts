@@ -1,9 +1,15 @@
 import { $, el } from './core'
 import { activeTab, updateFromChat } from './editor'
+import { icon } from './icons'
 
 export function initAnvilPanel(): void {
   const pane = $('pane-anvil')
   pane.innerHTML = '<div class="chat-layout"><div class="chat-config"><label>本地模型<select id="chat-model"></select></label><button class="mini-btn" id="chat-refresh">刷新模型</button></div><div class="chat-target"><button class="mini-btn" id="chat-select">选择授权文件</button><span id="chat-file">仅聊天</span><button class="mini-btn" id="chat-release" hidden>解除授权</button></div><div id="chat-log" role="log" aria-live="polite"></div><section id="chat-preview" hidden><strong>待确认修改</strong><p id="chat-preview-file"></p><label>原文</label><pre id="chat-old"></pre><label>替换为</label><pre id="chat-new"></pre><button class="tb-btn" id="chat-apply">应用修改</button> <button class="tb-btn" id="chat-discard">放弃</button></section><form id="chat-form"><textarea id="chat-input" aria-label="聊天消息" placeholder="询问代码，或描述要修改的内容" maxlength="8000"></textarea><div class="chat-actions"><button class="tb-btn" id="chat-send">发送</button><button class="tb-btn" type="button" id="chat-cancel" hidden>取消生成</button><button class="mini-btn" type="button" id="chat-undo">撤销上次修改</button></div></form><p id="chat-status" role="status"></p></div>'
+  // 按钮前加图标（文字和 id 不变）
+  for (const [id, name] of [['chat-refresh', 'refresh'], ['chat-select', 'link'], ['chat-release', 'unlink'],
+    ['chat-send', 'send'], ['chat-cancel', 'stop'], ['chat-undo', 'undo'], ['chat-apply', 'check'], ['chat-discard', 'x']]) {
+    $(id).insertAdjacentHTML('afterbegin', icon(name))
+  }
   const button = (id: string) => $(id) as HTMLButtonElement
   const select = $('chat-model') as HTMLSelectElement
   const input = $('chat-input') as HTMLTextAreaElement
@@ -21,6 +27,8 @@ export function initAnvilPanel(): void {
   function say(label: string, content: string): void {
     const box = $('chat-log')
     const item = el('article', 'chat-message')
+    // 按角色区分气泡样式：你 / 助手 / 工具调用 / 文件操作记录
+    item.dataset.role = ({ 你: 'you', 助手: 'bot', 工具: 'tool', 文件: 'file' } as Record<string, string>)[label] ?? 'bot'
     item.append(el('strong', '', label), el('p', '', content))
     box.append(item)
     if (box.childElementCount > 60) box.firstElementChild?.remove()
@@ -41,7 +49,7 @@ export function initAnvilPanel(): void {
     select.replaceChildren(...names.map(name => new Option(name, name)))
     if (names.includes(previous)) select.value = previous
     $('st-anvil').textContent = names.length ? 'AI：本地模型就绪' : 'AI：未安装聊天模型'
-    $('anvil-dot').textContent = '● 本地 AI'
+    $('anvil-dot').textContent = '本地 AI'
     $('anvil-dot').className = 'anvil-dot ' + (names.length ? 'on' : 'off')
     if (!names.length) throw new Error('请在 Ollama 中安装本地聊天模型后刷新')
   }

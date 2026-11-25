@@ -18,15 +18,27 @@ let histIdx = -1
 export function initTerminal(): void {
   const host = $('terminal')
   term = new Terminal({
-    fontFamily: "'Cascadia Mono', Consolas, monospace",
+    fontFamily: "'Cascadia Code', 'Cascadia Mono', Consolas, monospace",
     fontSize: 12.5,
+    lineHeight: 1.2,
     cursorBlink: true,
+    cursorStyle: 'bar',
     convertEol: true,
     theme: {
-      background: '#15171d',
-      foreground: '#d5d9e4',
-      cursor: '#4f8cff',
-      selectionBackground: '#3a4a6b'
+      // 与界面同一套颜色（ui.css 的 --bg0 / --accent 等）
+      background: '#12151d',
+      foreground: '#dfe3ec',
+      cursor: '#6e8fff',
+      cursorAccent: '#12151d',
+      selectionBackground: '#33416a',
+      black: '#1b202a', brightBlack: '#5c667c',
+      red: '#ff6b78', brightRed: '#ff9aa3',
+      green: '#2bc47f', brightGreen: '#4ee0a2',
+      yellow: '#f4b54d', brightYellow: '#ffd27a',
+      blue: '#6e8fff', brightBlue: '#9db4ff',
+      magenta: '#a47cff', brightMagenta: '#c6a8ff',
+      cyan: '#4cc9e0', brightCyan: '#86e1f0',
+      white: '#c9cfdc', brightWhite: '#f4f6fb'
     }
   })
   fit = new FitAddon()

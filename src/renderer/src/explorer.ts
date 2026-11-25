@@ -1,5 +1,6 @@
 ﻿import { bus, state, $, el } from './core'
 import { openFile } from './editor'
+import { icon, fileBadge } from './icons'
 import type { FsEntry } from '../../shared/types'
 
 // —— 文件树：懒加载目录，双击/单击打开文件 ——
@@ -8,15 +9,10 @@ const expanded = new Set<string>()
 const pending = new WeakMap<HTMLElement, symbol>()
 let activeFile: string | null = null
 
-function iconFor(e: FsEntry): string {
-  if (e.isDir) return '📁'
-  const ext = e.name.split('.').pop()?.toLowerCase() ?? ''
-  if (['c', 'cpp', 'cc', 'cxx', 'h', 'hpp'].includes(ext)) return '📘'
-  if (ext === 'py') return '🐍'
-  if (['js', 'ts', 'mjs'].includes(ext)) return '🟨'
-  if (['md', 'txt'].includes(ext)) return '📄'
-  if (['json', 'toml', 'ini'].includes(ext)) return '⚙️'
-  return '📄'
+// 文件夹展开 / 收起：箭头旋转 + 图标换成打开的文件夹
+function setOpen(row: HTMLElement, e: FsEntry, open: boolean): void {
+  row.classList.toggle('open', open)
+  row.querySelector('.ico')!.innerHTML = fileBadge(e.name, e.isDir, open)
 }
 
 async function loadChildren(dir: string, container: HTMLElement): Promise<void> {
@@ -35,7 +31,11 @@ async function loadChildren(dir: string, container: HTMLElement): Promise<void> 
     const row = el('div', 'tree-item')
     row.dataset.path = e.path
     row.classList.toggle('active', !e.isDir && e.path === activeFile)
-    row.append(el('span', 'ico', iconFor(e)))
+    const twisty = el('span', 'tw')
+    if (e.isDir) twisty.innerHTML = icon('chevronRight')
+    const ico = el('span', 'ico')
+    ico.innerHTML = fileBadge(e.name, e.isDir)
+    row.append(twisty, ico)
     const name = el('span', '', e.name)
     name.style.overflow = 'hidden'
     name.style.textOverflow = 'ellipsis'
@@ -46,10 +46,10 @@ async function loadChildren(dir: string, container: HTMLElement): Promise<void> 
         if (expanded.has(e.path)) {
           expanded.delete(e.path)
           row.nextElementSibling?.remove()
-          row.querySelector('.ico')!.textContent = '📁'
+          setOpen(row, e, false)
         } else {
           expanded.add(e.path)
-          row.querySelector('.ico')!.textContent = '📂'
+          setOpen(row, e, true)
           const kids = el('div', 'kids')
           row.after(kids)
           await loadChildren(e.path, kids)
@@ -61,7 +61,7 @@ async function loadChildren(dir: string, container: HTMLElement): Promise<void> 
     })
     // 文件夹默认展开第一层
     if (e.isDir && expanded.has(e.path)) {
-      row.querySelector('.ico')!.textContent = '📂'
+      setOpen(row, e, true)
       const kids = el('div', 'kids')
       row.after(kids)
       void loadChildren(e.path, kids)

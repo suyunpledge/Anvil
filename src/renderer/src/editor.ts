@@ -5,6 +5,7 @@ import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import { bus, state, $, el } from './core'
+import { icon, fileBadge } from './icons'
 
 self.MonacoEnvironment = {
   getWorker(_moduleId, label) {
@@ -29,17 +30,75 @@ let active: Tab | null = null
 // 脏标记：保存时的 alternativeVersionId 与当前不一致 = 有未保存修改
 const cleanVersion = new Map<string, number>()
 
+// 编辑器配色：与界面同一套颜色（ui.css 的 --bg / --accent 等）
+monaco.editor.defineTheme('anvil-dark', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '636e86', fontStyle: 'italic' },
+    { token: 'keyword', foreground: 'c792ea' },
+    { token: 'string', foreground: 'b8e08a' },
+    { token: 'number', foreground: 'f9a06b' },
+    { token: 'type', foreground: 'ffcb6b' },
+    { token: 'type.identifier', foreground: 'ffcb6b' },
+    { token: 'delimiter', foreground: '8d97ad' },
+    { token: 'operator', foreground: '89ddff' },
+    { token: 'predefined', foreground: '82aaff' },
+    { token: 'tag', foreground: 'f07178' },
+    { token: 'attribute.name', foreground: 'ffcb6b' },
+    { token: 'regexp', foreground: '89ddff' }
+  ],
+  colors: {
+    'editor.background': '#171b24',
+    'editor.foreground': '#e6e9f1',
+    'editorLineNumber.foreground': '#465068',
+    'editorLineNumber.activeForeground': '#c3cadb',
+    'editor.lineHighlightBackground': '#ffffff07',
+    'editor.lineHighlightBorder': '#00000000',
+    'editor.selectionBackground': '#6e8fff40',
+    'editor.inactiveSelectionBackground': '#6e8fff22',
+    'editor.findMatchHighlightBackground': '#f4b54d33',
+    'editorCursor.foreground': '#8ba6ff',
+    'editorIndentGuide.background1': '#252b39',
+    'editorIndentGuide.activeBackground1': '#3a4359',
+    'editorBracketHighlight.foreground1': '#e2b86b',
+    'editorBracketHighlight.foreground2': '#c792ea',
+    'editorBracketHighlight.foreground3': '#7fb4ff',
+    'editorBracketMatch.background': '#6e8fff22',
+    'editorBracketMatch.border': '#6e8fff66',
+    'editorWidget.background': '#1b202a',
+    'editorWidget.border': '#344057',
+    'editorSuggestWidget.background': '#1b202a',
+    'editorSuggestWidget.border': '#344057',
+    'editorSuggestWidget.selectedBackground': '#6e8fff2e',
+    'editorHoverWidget.background': '#1b202a',
+    'editorHoverWidget.border': '#344057',
+    'editorGutter.background': '#171b24',
+    'editorError.foreground': '#ff6b78',
+    'editorWarning.foreground': '#f4b54d',
+    'scrollbarSlider.background': '#7f8ca833',
+    'scrollbarSlider.hoverBackground': '#7f8ca855',
+    'minimap.background': '#151922'
+  }
+})
+
 const editor = monaco.editor.create($('editor'), {
-  theme: 'vs-dark',
+  theme: 'anvil-dark',
   automaticLayout: true,
   fontSize: 14,
-  fontFamily: "'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace",
+  lineHeight: 22,
+  fontFamily: "'Cascadia Code', 'Cascadia Mono', Consolas, 'Microsoft YaHei UI', monospace",
+  fontLigatures: true,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   tabSize: 4,
   smoothScrolling: true,
   cursorBlinking: 'smooth',
-  padding: { top: 10 }
+  cursorSmoothCaretAnimation: 'on',
+  bracketPairColorization: { enabled: true },
+  guides: { bracketPairs: 'active', indentation: true },
+  renderLineHighlight: 'all',
+  padding: { top: 12, bottom: 12 }
 })
 
 const LANG_BY_EXT: Record<string, string> = {
@@ -93,10 +152,14 @@ function renderStrip(): void {
     const label = el('span', '', name)
     label.title = t.path
     const dirty = el('span', 'dirty', isDirty(t) ? '●' : '')
-    const close = el('span', 'close', '✕')
+    const close = el('span', 'close')
+    close.innerHTML = icon('x')
+    close.title = '关闭'
+    // 标签名保持为第一个子元素（未保存标记按它查找）；徽标靠 CSS order 显示在最前
     tabEl.append(label, dirty, close)
+    tabEl.insertAdjacentHTML('beforeend', fileBadge(name))
     tabEl.addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).classList.contains('close')) closeTab(t)
+      if ((e.target as HTMLElement).closest('.close')) closeTab(t)
       else activate(t)
     })
     strip.append(tabEl)

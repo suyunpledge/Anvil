@@ -7,6 +7,7 @@ import { initAnvilPanel } from './anvilpanel'
 import { initTerminal, activateTerminal } from './terminal'
 import { initToolbox } from './toolbox'
 import { initDebugger } from './debugger'
+import { hydrateIcons, fileBadge } from './icons'
 
 type Panel = 'out' | 'term'
 
@@ -25,6 +26,8 @@ async function step(name: string, fn: () => Promise<void> | void): Promise<void>
 }
 
 async function bootstrap(): Promise<void> {
+  // 图标先挂上（纯展示，失败也不影响功能）
+  try { hydrateIcons() } catch (e) { console.error('[bootstrap] icons 失败：', e) }
   // 监听器先挂，后续初始化任何一步失败都不影响按钮可用
   attachListeners()
   await step('explorer', () => initExplorer())
@@ -211,6 +214,7 @@ function buildWelcomeRecents(): void {
     if (!files.length && !folders.length) return
     for (const f of files) {
       const item = el('div', 'w-recent-item')
+      item.insertAdjacentHTML('beforeend', fileBadge(f.split(/[\\/]/).pop() ?? f))
       item.append(el('span', 'tag', '文件'))
       const name = el('span', '', f.split(/[\\/]/).pop() ?? f)
       name.title = f
@@ -220,6 +224,7 @@ function buildWelcomeRecents(): void {
     }
     for (const d of folders) {
       const item = el('div', 'w-recent-item')
+      item.insertAdjacentHTML('beforeend', fileBadge('', true))
       item.append(el('span', 'tag', '文件夹'))
       const name = el('span', '', d)
       name.title = d
