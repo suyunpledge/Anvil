@@ -1,5 +1,6 @@
 import { $, el, showPanel } from './core'
 import { saveActive, activeTab, revealLine } from './editor'
+import { beginRun, runStderr } from './problems'
 import { languageKind, languageNames } from '../../shared/languages'
 import type { CompilerInfo, OutChunk, ExitInfo } from '../../shared/types'
 
@@ -29,6 +30,7 @@ function setRunning(on: boolean, sid?: number): void {
   const btnStop = $('btn-stop') as HTMLButtonElement
   btnRun.disabled = on
   btnStop.disabled = !on
+  document.body.classList.toggle('running', on)
   $('console-state').textContent = on ? '运行中…' : ''
   $('console-wrap').classList.remove('collapsed')
   showPanel('out')
@@ -107,6 +109,7 @@ export async function initRun(): Promise<void> {
   window.ide.onRunOut((chunk: OutChunk) => {
     if (runSid !== null && !('code' in chunk) && chunk.sid === runSid) {
       const c = chunk as { text: string; stream: string }
+      if (c.stream === 'stderr') runStderr(c.text)
       if (c.stream === 'stderr' && /:\d+:\d+:\s*(fatal )?(error|warning):/.test(c.text)) {
         renderCompilerErrors(c.text)
       } else {
@@ -155,6 +158,7 @@ async function doRun(): Promise<void> {
   out(`—— 运行 ${tab.path.split(/[\\/]/).pop()} ——`, 'co-dim')
   const saved = await saveActive()
   if (!saved) return
+  beginRun(saved)
   const r = await window.ide.startRun(saved)
   if (r.compiler) {
     out(

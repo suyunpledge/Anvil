@@ -41,11 +41,16 @@ export function showFeedback(message: string): void {
   feedbackTimeout = setTimeout(() => { area.textContent = '' }, 4500)
 }
 
-// 底部面板切换（输出 / 终端）
-export function showPanel(p: 'out' | 'term'): void {
+// 底部面板切换（问题 / 输出 / 终端）
+export type PanelName = 'out' | 'term' | 'problems'
+export function showPanel(p: PanelName): void {
   document.querySelectorAll('.ptab').forEach((b) => {
     b.classList.toggle('active', (b as HTMLElement).dataset.panel === p)
   })
   document.getElementById('console-body')?.classList.toggle('hidden', p !== 'out')
   document.getElementById('term-body')?.classList.toggle('hidden', p !== 'term')
+  document.getElementById('problems-body')?.classList.toggle('hidden', p !== 'problems')
+  // 「清空」只对输出有意义
+  document.getElementById('console-clear')?.toggleAttribute('hidden', p !== 'out')
+  document.getElementById('problems-clear')?.toggleAttribute('hidden', p !== 'problems')
 }

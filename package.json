@@ -1,6 +1,6 @@
 {
   "name": "anvil-ide",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Anvil IDE — VSCode 开源编辑器内核(Monaco) + 自研中文界面 + Anvil 本地模型编码代理",
   "main": "./out/main/index.js",
   "author": "ku-suyun",

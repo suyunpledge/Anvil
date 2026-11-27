@@ -1,9 +1,11 @@
-import { $, el, bus, showFeedback } from './core'
+import { $, el, bus, showFeedback, type PanelName } from './core'
 import { activeTab, editor, hasUnsavedTabs, saveAll } from './editor'
-import { initQuickPicker } from './quick-picker'
+import { initQuickPicker, type PickerMode } from './quick-picker'
+import { toggleSetting, zoom } from './settings'
+import { showShortcuts } from './dialogs'
 import type { initDebugger } from './debugger'
 
-type Panel = 'out' | 'term'
+type Panel = PanelName
 
 interface Tool {
   title: string
@@ -12,7 +14,15 @@ interface Tool {
   run: () => void | Promise<void>
 }
 
-async function editorAction(id: string): Promise<void> {
+/** 打开侧栏「搜索」视图，并把编辑器里选中的文字带进去 */
+export function openSearchView(): void {
+  const selection = editor.getSelection()
+  const text = selection && !selection.isEmpty() ? editor.getModel()?.getValueInRange(selection) ?? '' : ''
+  if (text) bus.emit('search:seed', text)
+  bus.emit('pane:show', 'search')
+}
+
+export async function editorAction(id: string): Promise<void> {
   editor.focus()
   const action = editor.getAction(id)
   if (!action?.isSupported()) {
@@ -26,7 +36,7 @@ export function initToolbox(options: {
   showPanel: (panel: Panel) => Promise<void>
   openFile: (path: string, line?: number, column?: number) => Promise<void>
   debug: ReturnType<typeof initDebugger>
-}): void {
+}): (mode: PickerMode) => void {
   const host = $('editor-host')
   const toolbox = $('toolbox')
   const toggle = $('toolbox-toggle') as HTMLButtonElement
@@ -38,16 +48,12 @@ export function initToolbox(options: {
     const language = activeTab()?.model.getLanguageId() ?? ''
     return ['json', 'javascript', 'typescript', 'css', 'html'].includes(language)
   }
-  let wraps = false
-  let minimap = false
   function toggleWrap(): void {
-    wraps = !wraps
-    editor.updateOptions({ wordWrap: wraps ? 'on' : 'off' })
+    toggleSetting('wordWrap')
     editor.focus()
   }
   function toggleMinimap(): void {
-    minimap = !minimap
-    editor.updateOptions({ minimap: { enabled: minimap } })
+    toggleSetting('minimap')
     editor.focus()
   }
 
@@ -63,8 +69,10 @@ export function initToolbox(options: {
       { title: '打开 Work 文件整理（批量查找 / 移动文件）', run: () => bus.emit('ai:open', 'work') }
     ],
     导航: [
-      { title: '在项目中搜索', shortcut: 'Ctrl+Shift+F', run: () => openPicker('search') },
-      { title: '跳转到行', shortcut: 'Ctrl+G', available: hasFile, run: () => editorAction('editor.action.gotoLine') }
+      { title: '在项目中搜索', shortcut: 'Ctrl+Shift+F', run: openSearchView },
+      { title: '跳转到行', shortcut: 'Ctrl+G', available: hasFile, run: () => editorAction('editor.action.gotoLine') },
+      { title: '跳转到符号（函数 / 变量）', shortcut: 'Ctrl+Shift+O', available: hasFile, run: () => editorAction('editor.action.quickOutline') },
+      { title: '转到定义', shortcut: 'F12', available: hasFile, run: () => editorAction('editor.action.revealDefinition') }
     ],
     编辑: [
       { title: '在当前文件中查找', shortcut: 'Ctrl+F', available: hasFile, run: () => editorAction('actions.find') },
@@ -82,9 +90,18 @@ export function initToolbox(options: {
     ],
     视图: [
       { title: '切换自动换行', shortcut: 'Alt+Z', available: hasFile, run: toggleWrap },
-      { title: '切换代码缩略图', available: hasFile, run: toggleMinimap },
+      { title: '切换代码缩略图', run: toggleMinimap },
+      { title: '资源管理器', shortcut: 'Ctrl+Shift+E', run: () => bus.emit('pane:show', 'files') },
+      { title: '问题面板（错误列表）', shortcut: 'Ctrl+Shift+M', run: () => options.showPanel('problems') },
       { title: '打开输出面板', run: () => options.showPanel('out') },
-      { title: '打开终端面板', shortcut: 'Ctrl+`', run: () => options.showPanel('term') }
+      { title: '打开终端面板', shortcut: 'Ctrl+`', run: () => options.showPanel('term') },
+      { title: '放大编辑器字号', shortcut: 'Ctrl+=', run: () => zoom(1) },
+      { title: '缩小编辑器字号', shortcut: 'Ctrl+-', run: () => zoom(-1) },
+      { title: '恢复默认字号', shortcut: 'Ctrl+0', run: () => zoom(0) }
+    ],
+    设置与帮助: [
+      { title: '设置', shortcut: 'Ctrl+,', run: () => bus.emit('pane:show', 'settings') },
+      { title: '键盘快捷键一览', run: showShortcuts }
     ]
   }
   const tools: Tool[] = [
@@ -189,11 +206,17 @@ export function initToolbox(options: {
       return
     }
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return
-    const mode = key === 'p' ? event.shiftKey ? 'commands' : 'files'
-      : key === 'f' && event.shiftKey ? 'search' : null
+    if (key === 'f' && event.shiftKey) {
+      event.preventDefault()
+      setOpen(false)
+      openSearchView()
+      return
+    }
+    const mode = key === 'p' ? event.shiftKey ? 'commands' : 'files' : null
     if (!mode) return
     event.preventDefault()
     setOpen(false)
     openPicker(mode)
   }, { capture: true })
+  return openPicker
 }

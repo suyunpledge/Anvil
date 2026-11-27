@@ -4,8 +4,9 @@ import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-import { bus, state, $, el } from './core'
+import { bus, state, $, el, showFeedback } from './core'
 import { icon, fileBadge } from './icons'
+import { showMenu } from './menu'
 
 self.MonacoEnvironment = {
   getWorker(_moduleId, label) {
@@ -140,7 +141,43 @@ function refreshWelcome(): void {
   if (!has) {
     $('lang-badge').textContent = '—'
     state.openFile = null
+    renderCrumbs()
   }
+}
+
+const slash = (p: string): string => p.replace(/\\/g, '/')
+const trimEnd = (p: string): string => slash(p).replace(/\/+$/, '')
+const samePath = (a: string, b: string): boolean => trimEnd(a).toLowerCase() === trimEnd(b).toLowerCase()
+/** p 等于 dir 或位于 dir 之内 */
+export const isUnder = (p: string, dir: string): boolean =>
+  samePath(p, dir) || slash(p).toLowerCase().startsWith(trimEnd(dir).toLowerCase() + '/')
+
+// 面包屑：工作区内显示「文件夹 › 子目录 › 文件」，否则显示路径最后几段
+export function renderCrumbs(): void {
+  const bar = $('breadcrumbs')
+  bar.replaceChildren()
+  bar.hidden = !active
+  if (!active) return
+  const file = slash(active.path)
+  let parts: string[]
+  if (state.folder && isUnder(file, state.folder)) {
+    const root = trimEnd(state.folder)
+    parts = [root.split('/').pop() ?? root, ...file.slice(root.length + 1).split('/')]
+  } else {
+    parts = file.split('/').filter(Boolean).slice(-3)
+  }
+  parts.forEach((part, i) => {
+    if (i) bar.insertAdjacentHTML('beforeend', `<span class="crumb-sep">${icon('chevronRight')}</span>`)
+    const last = i === parts.length - 1
+    const crumb = el('span', 'crumb' + (last ? ' file' : ''))
+    crumb.insertAdjacentHTML('beforeend', last ? fileBadge(part) : fileBadge(part, true))
+    crumb.append(el('span', '', part))
+    if (!last) {
+      crumb.title = '在资源管理器中显示'
+      crumb.addEventListener('click', () => bus.emit('pane:show', 'files'))
+    }
+    bar.append(crumb)
+  })
 }
 
 function renderStrip(): void {
@@ -163,7 +200,15 @@ function renderStrip(): void {
       if ((e.target as HTMLElement).closest('.close')) closeTab(t)
       else activate(t)
     })
+    // 中键关闭、右键菜单（与 VS Code 一致）
+    tabEl.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); closeTab(t) } })
+    tabEl.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault() })
+    tabEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      tabMenu(t, e.clientX, e.clientY)
+    })
     strip.append(tabEl)
+    if (t === active) requestAnimationFrame(() => tabEl.scrollIntoView({ block: 'nearest', inline: 'nearest' }))
   }
   ;($('btn-save') as HTMLButtonElement).disabled = !active
   bus.emit('tabs:changed')
@@ -179,6 +224,7 @@ function activate(t: Tab): void {
   $('lang-badge').textContent = langLabel(t.path)
   $('st-encoding').textContent = t.encoding.toUpperCase()
   renderStrip()
+  renderCrumbs()
   refreshWelcome()
   bus.emit('tab:active', t.path)
   bus.emit('tree:active', t.path)
@@ -214,6 +260,69 @@ export function activeTab(): Tab | null {
   return active
 }
 
+export function allTabs(): readonly Tab[] {
+  return tabs
+}
+
+/** 批量关闭：有未保存的先统一确认一次 */
+export function closeTabs(list: Tab[]): boolean {
+  const dirty = list.filter(isDirty)
+  if (dirty.length) {
+    const names = dirty.map((t) => '「' + (t.path.split(/[\\/]/).pop() ?? t.path) + '」').join('')
+    if (!confirm(`${names} 还没有保存，关闭将丢失修改。确定关闭吗？`)) return false
+  }
+  for (const t of [...list]) if (tabs.includes(t)) closeTab(t, true)
+  return true
+}
+
+export function cycleTab(delta: number): void {
+  if (tabs.length < 2 || !active) return
+  activate(tabs[(tabs.indexOf(active) + delta + tabs.length) % tabs.length])
+}
+
+/** 某路径（文件或文件夹）下打开着的标签 */
+export function tabsUnder(p: string): Tab[] {
+  return tabs.filter((t) => isUnder(t.path, p) || isUnder(t.canonicalPath, p))
+}
+
+/** 重命名后：关掉旧标签并在新路径重新打开（调用前已确认没有未保存修改） */
+export async function reopenMoved(oldPath: string, newPath: string): Promise<void> {
+  const moved = tabsUnder(oldPath)
+  const activePath = active && moved.includes(active) ? active.path : null
+  for (const t of moved) closeTab(t, true)
+  const target = (p: string): string => newPath + p.slice(trimEnd(oldPath).length)
+  for (const t of moved) {
+    if (t.path === activePath) continue
+    await openFile(target(t.path)).catch((error) => showFeedback('无法重新打开：' + String(error)))
+  }
+  if (activePath) await openFile(target(activePath)).catch((error) => showFeedback('无法重新打开：' + String(error)))
+}
+
+export function relativePath(p: string): string {
+  if (!state.folder || !isUnder(p, state.folder)) return p
+  return slash(p).slice(trimEnd(state.folder).length + 1)
+}
+
+export async function copyText(text: string): Promise<void> {
+  await navigator.clipboard.writeText(text)
+  showFeedback('已复制：' + text)
+}
+
+function tabMenu(t: Tab, x: number, y: number): void {
+  const index = tabs.indexOf(t)
+  showMenu([
+    { label: '关闭', shortcut: 'Ctrl+W', icon: 'x', run: () => closeTab(t) },
+    { label: '关闭其他标签', enabled: () => tabs.length > 1, run: () => { closeTabs(tabs.filter((x) => x !== t)) } },
+    { label: '关闭右侧标签', enabled: () => index < tabs.length - 1, run: () => { closeTabs(tabs.slice(index + 1)) } },
+    { label: '关闭已保存的标签', enabled: () => tabs.some((x) => !isDirty(x)), run: () => { closeTabs(tabs.filter((x) => !isDirty(x))) } },
+    { label: '全部关闭', run: () => { closeTabs([...tabs]) } },
+    '-',
+    { label: '复制路径', icon: 'copy', run: () => copyText(t.path) },
+    { label: '复制相对路径', enabled: () => Boolean(state.folder && isUnder(t.path, state.folder)), run: () => copyText(relativePath(t.path)) },
+    { label: '在资源管理器中显示', icon: 'files', run: () => { activate(t); bus.emit('pane:show', 'files') } }
+  ], { x, y }, { onError: (e) => showFeedback(String(e)) })
+}
+
 export async function updateFromChat(file: string, write: () => Promise<{ text: string; undo: boolean }>): Promise<boolean> {
   const same = (p: string) => p.replaceAll('\\', '/').toLowerCase() === file.replaceAll('\\', '/').toLowerCase()
   const matching = () => tabs.filter(t => same(t.canonicalPath))
@@ -229,9 +338,9 @@ export async function updateFromChat(file: string, write: () => Promise<{ text: 
   return result.undo
 }
 
-export function closeTab(t: Tab): void {
+export function closeTab(t: Tab, force = false): void {
   const name = t.path.split(/[\\/]/).pop() ?? t.path
-  if (isDirty(t) && !confirm(`「${name}」还没有保存，关闭将丢失修改。确定关闭吗？`)) return
+  if (!force && isDirty(t) && !confirm(`「${name}」还没有保存，关闭将丢失修改。确定关闭吗？`)) return
   const i = tabs.indexOf(t)
   tabs.splice(i, 1)
   cleanVersion.delete(t.path)
@@ -284,8 +393,11 @@ export async function revealLine(p: string, line: number, col?: number): Promise
 }
 
 export function initCursorStatus(): void {
-  editor.onDidChangeCursorPosition((e) => {
-    $('st-cursor').textContent = `行 ${e.position.lineNumber}，列 ${e.position.column}`
+  editor.onDidChangeCursorSelection((e) => {
+    const p = e.selection.getPosition()
+    const selected = e.selection.isEmpty() ? 0 : editor.getModel()?.getValueLengthInRange(e.selection) ?? 0
+    const extra = e.secondarySelections.length ? `（${e.secondarySelections.length + 1} 处光标）` : selected ? `（已选 ${selected}）` : ''
+    $('st-cursor').textContent = `行 ${p.lineNumber}，列 ${p.column}${extra}`
   })
 }
 

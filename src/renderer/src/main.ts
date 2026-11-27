@@ -1,5 +1,5 @@
 import './ui.css'
-import { $, el, bus, showFeedback, showPanel, state } from './core'
+import { $, el, bus, showFeedback, showPanel, state, type PanelName } from './core'
 import { initExplorer, openFolder } from './explorer'
 import { initCursorStatus, saveActive, openFile, revealLine } from './editor'
 import { initRun } from './runpanel'
@@ -7,9 +7,13 @@ import { initAnvilPanel } from './anvilpanel'
 import { initTerminal, activateTerminal } from './terminal'
 import { initToolbox } from './toolbox'
 import { initDebugger } from './debugger'
+import { initSettings } from './settings'
+import { initProblems } from './problems'
+import { initSearchView } from './searchview'
+import { initWorkbench } from './workbench'
 import { hydrateIcons, fileBadge } from './icons'
 
-type Panel = 'out' | 'term'
+type Panel = PanelName
 
 async function showConsolePanel(p: Panel): Promise<void> {
   showPanel(p)
@@ -96,14 +100,34 @@ function attachListeners(): void {
   })
 
   initNewFile(openFolderDlg)
-  initToolbox({
-    debug: initDebugger(),
+  const debug = initDebugger()
+  const openPicker = initToolbox({
+    debug,
     showPanel: showConsolePanel,
     openFile: async (path, line, column) => {
       if (line === undefined) await openFile(path)
       else await revealLine(path, line, column)
       await window.ide.rememberFile(path)
     }
+  })
+  // 设置 / 问题 / 搜索 / 菜单栏：各自独立，单个失败不影响其余
+  for (const [name, init] of [
+    ['settings', initSettings],
+    ['problems', initProblems],
+    ['search', initSearchView],
+    ['workbench', () => initWorkbench({
+      openPicker,
+      showPanel: showConsolePanel,
+      openFolderDlg,
+      openFileDlg,
+      openRecent: importFile,
+      debug
+    })]
+  ] as const) {
+    try { init() } catch (e) { console.error(`[bootstrap] ${name} 失败：`, e) }
+  }
+  bus.on('panel:show', (p) => {
+    void showConsolePanel((typeof p === 'string' ? p : 'out') as Panel).catch((error) => showFeedback(String(error)))
   })
   $('btn-save').addEventListener('click', () => {
     void saveActive().then((file) => { if (file) showFeedback('已保存') })

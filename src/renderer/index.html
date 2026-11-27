@@ -14,6 +14,8 @@
     <!-- 标题栏（右侧为系统原生窗口按钮，内容避开右侧 150px） -->
     <header id="titlebar">
       <div class="brand"><i data-ic="brand"></i><span class="brand-name">铁砧</span><span class="brand-tag">IDE</span></div>
+      <nav id="menubar" aria-label="菜单栏"></nav>
+      <div class="titlebar-fill"></div>
       <div class="title-path"><i data-ic="folder"></i><span id="title-folder" class="title-folder">未打开文件夹</span></div>
       <div class="titlebar-spacer"></div>
     </header>
@@ -43,21 +45,61 @@
 
     <!-- 主区域 -->
     <div id="main">
+      <!-- 活动栏（对标 VS Code 最左侧图标栏）：再点一次当前图标可收起侧栏 -->
+      <nav id="activitybar" aria-label="活动栏">
+        <button class="side-tab active" data-pane="files" title="资源管理器（Ctrl+Shift+E）"><i data-ic="files"></i><span>文件</span></button>
+        <button class="side-tab" data-pane="search" title="在项目中搜索（Ctrl+Shift+F）"><i data-ic="search"></i><span>搜索</span></button>
+        <button class="side-tab" data-pane="anvil" title="AI 代码助手：读懂、检查、修改代码（Ctrl+Shift+A）"><i data-ic="chat"></i><span>AI 助手</span></button>
+        <button class="side-tab" data-pane="anvil" data-mode="work" title="Work 文件整理：让 AI 批量查找、移动文件（Ctrl+Shift+W）"><i data-ic="folders"></i><span>Work</span></button>
+        <div class="ab-fill"></div>
+        <button class="side-tab" data-pane="settings" title="设置（Ctrl+,）"><i data-ic="settings"></i><span>设置</span></button>
+      </nav>
       <aside id="sidebar">
-        <div id="side-tabs">
-          <button class="side-tab active" data-pane="files"><i data-ic="files"></i><span>文件</span></button>
-          <button class="side-tab" data-pane="anvil" title="AI 代码助手：读懂、检查、修改代码"><i data-ic="chat"></i><span>AI 助手</span></button>
-          <button class="side-tab" data-pane="anvil" data-mode="work" title="Work 文件整理：让 AI 批量查找、移动文件"><i data-ic="folders"></i><span>Work</span></button>
-        </div>
         <div id="pane-files" class="side-pane active">
-          <div id="file-tree" class="file-tree"><div class="hint">点击上方「打开文件夹」<br />选择你的代码文件夹</div></div>
+          <header class="pane-head">
+            <span class="pane-title">资源管理器</span>
+            <div class="pane-actions">
+              <button id="ex-new-file" class="mini-btn icon-only" title="新建文件（Ctrl+N）" aria-label="新建文件"><i data-ic="filePlus"></i></button>
+              <button id="ex-new-folder" class="mini-btn icon-only" title="新建文件夹" aria-label="新建文件夹"><i data-ic="folderPlus"></i></button>
+              <button id="ex-refresh" class="mini-btn icon-only" title="刷新" aria-label="刷新"><i data-ic="refresh"></i></button>
+              <button id="ex-collapse" class="mini-btn icon-only" title="全部折叠" aria-label="全部折叠"><i data-ic="collapse"></i></button>
+            </div>
+          </header>
+          <div class="ex-root"><i data-ic="chevronDown"></i><span id="explorer-root">未打开文件夹</span></div>
+          <div class="ex-empty">
+            <p>还没有打开文件夹。打开你的代码文件夹后，这里会显示其中的文件。</p>
+            <button id="ex-open" class="big-btn primary"><i data-ic="folderOpen"></i><span>打开文件夹</span></button>
+            <p class="ex-tip">小技巧：右键文件可以新建、重命名、删除；也可以把文件直接拖进窗口。</p>
+          </div>
+          <div id="file-tree" class="file-tree"></div>
+        </div>
+        <div id="pane-search" class="side-pane">
+          <header class="pane-head">
+            <span class="pane-title">搜索</span>
+            <div class="pane-actions">
+              <button id="search-refresh" class="mini-btn icon-only" title="重新搜索" aria-label="重新搜索"><i data-ic="refresh"></i></button>
+              <button id="search-collapse" class="mini-btn icon-only" title="全部折叠" aria-label="全部折叠"><i data-ic="collapse"></i></button>
+            </div>
+          </header>
+          <div class="search-box">
+            <i data-ic="search"></i>
+            <input id="search-input" type="text" placeholder="在项目的所有文件中搜索" spellcheck="false" autocomplete="off" aria-label="搜索内容" />
+            <button id="search-clear" class="mini-btn icon-only" title="清除" aria-label="清除" hidden><i data-ic="x"></i></button>
+          </div>
+          <p id="search-status" role="status"></p>
+          <div id="search-results"></div>
         </div>
         <div id="pane-anvil" class="side-pane"></div>
+        <div id="pane-settings" class="side-pane">
+          <header class="pane-head"><span class="pane-title">设置</span></header>
+          <div id="settings-body"></div>
+        </div>
       </aside>
       <div id="side-resizer" class="resizer v" title="拖动调整宽度，双击恢复默认（Ctrl+B 显示 / 隐藏侧栏）"></div>
 
       <section id="editor-col">
         <div id="tabstrip" class="empty"></div>
+        <div id="breadcrumbs" aria-label="文件路径" hidden></div>
         <div id="editor-host">
           <div id="editor"></div>
           <div id="welcome" class="welcome">
@@ -72,6 +114,7 @@
             <div class="w-tips">
               <div><kbd>F5</kbd> 或点「运行」一键编译运行（自动识别 C / C++ / Python / Java / Kotlin / JS / TS）</div>
               <div>也可以把文件或文件夹直接拖进窗口，导入即可运行</div>
+              <div><kbd>Ctrl+Shift+P</kbd> 搜索全部功能 · <kbd>Ctrl+P</kbd> 按文件名打开 · <kbd>Ctrl+Shift+F</kbd> 在项目中搜索</div>
             </div>
             <div id="w-recent" class="w-recent"></div>
           </div>
@@ -121,11 +164,13 @@
       <div id="console-resizer" class="resizer h" title="拖动调整高度（Ctrl+J 收起 / 展开，双击标题栏也可以）"></div>
       <div id="console-head">
         <div id="panel-tabs">
+          <button class="ptab" data-panel="problems" title="问题（Ctrl+Shift+M）：编译 / 运行报错和语法检查"><i data-ic="problems"></i><span>问题</span><span id="problems-count" class="ptab-count"></span></button>
           <button class="ptab active" data-panel="out"><i data-ic="output"></i><span>输出</span></button>
           <button class="ptab" data-panel="term"><i data-ic="terminal"></i><span>终端</span></button>
         </div>
         <span id="console-state"></span>
         <div class="spacer"></div>
+        <button id="problems-clear" class="mini-btn icon-only" title="清除运行报错" aria-label="清除运行报错" hidden><i data-ic="trash"></i></button>
         <button id="console-clear" class="mini-btn icon-only" title="清空输出" aria-label="清空输出"><i data-ic="trash"></i></button>
         <button id="console-toggle" class="mini-btn icon-only" title="收起 / 展开" aria-label="收起或展开面板"><i data-ic="chevronDown"></i></button>
       </div>
@@ -137,6 +182,7 @@
           <button id="console-send" class="mini-btn accent"><i data-ic="send"></i><span>发送</span></button>
         </div>
       </div>
+      <div id="problems-body" class="hidden"><div id="problems-list"></div></div>
       <div id="term-body" class="hidden">
         <div id="terminal"></div>
         <div class="term-hint">终端就绪中…</div>
@@ -146,10 +192,14 @@
     <!-- 状态栏 -->
     <footer id="statusbar">
       <button type="button" id="st-compiler" title="检查运行环境">运行环境探测中…</button>
+      <button type="button" id="st-problems" class="st-btn" title="没有发现问题"></button>
       <span id="st-anvil">Anvil：未连接</span>
       <div class="spacer"></div>
-      <span id="st-cursor">行 1，列 1</span>
+      <button type="button" id="st-cursor" class="st-btn" title="跳转到行（Ctrl+G）">行 1，列 1</button>
+      <button type="button" id="st-indent" class="st-btn" title="选择缩进方式" hidden></button>
       <span id="st-encoding">UTF-8</span>
+      <button type="button" id="st-eol" class="st-btn" title="选择换行符" hidden></button>
+      <span id="st-lang" hidden></span>
     </footer>
   </div>
   <dialog id="quick-dialog" aria-labelledby="quick-title">

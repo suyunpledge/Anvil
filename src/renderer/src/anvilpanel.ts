@@ -366,10 +366,13 @@ export function initAnvilPanel(): void {
 
   // —— 侧栏标签：「AI 聊天」打开代码助手；「Work」打开面板并切到 Work 模式 ——
   function showPane(name: string): void {
+    $('app').classList.remove('no-side')
     for (const item of document.querySelectorAll('.side-pane')) item.classList.toggle('active', item.id === 'pane-' + name)
     $('sidebar').classList.toggle('show-chat', name === 'anvil')
     renderSideTabs()
+    bus.emit('pane:shown', name)
   }
+  bus.on('pane:show', (name) => showPane(typeof name === 'string' ? name : 'files'))
   function renderSideTabs(): void {
     const anvilOpen = pane.classList.contains('active')
     const hasWorkTab = Boolean(document.querySelector('.side-tab[data-mode="work"]'))
@@ -388,6 +391,12 @@ export function initAnvilPanel(): void {
   }
   for (const tab of document.querySelectorAll<HTMLButtonElement>('.side-tab')) {
     tab.onclick = () => {
+      // 活动栏：再点一次当前图标 → 收起侧栏（与 VS Code 相同）
+      const app = $('app')
+      if (tab.classList.contains('active') && !app.classList.contains('no-side')) {
+        app.classList.add('no-side')
+        return
+      }
       if (tab.dataset.mode === 'work') openMode('work')
       else if (tab.dataset.pane === 'anvil' && mode.value === 'work') openMode('code')
       else showPane(tab.dataset.pane ?? 'files')

@@ -187,8 +187,9 @@ function registerIpc(): void {
     fsSvc.createEntry(parent, name, isDir)
   )
   ipcMain.handle('fs:rename', (_e, oldPath: string, newName: string) => fsSvc.renameEntry(oldPath, newName))
+  // 资源管理器删除：移到系统回收站（新手误删可还原），不做永久删除
   ipcMain.handle('fs:delete', async (_e, target: string) => {
-    await fsSvc.deleteEntry(target)
+    await shell.trashItem(target)
     return true
   })
 
