@@ -137,9 +137,15 @@ export function initMenubar(host: HTMLElement, menus: Array<[string, () => MenuI
       }
     })
   }
+  // 优先复用 HTML 里写好的按钮（见 index.html 的说明），没有才现建
+  const existing = Array.from(host.querySelectorAll<HTMLButtonElement>('.menubar-item'))
   menus.forEach(([label], index) => {
-    const button = el('button', 'menubar-item', label) as HTMLButtonElement
-    button.type = 'button'
+    const button = existing.find((b) => b.textContent?.trim() === label) ?? (() => {
+      const made = el('button', 'menubar-item', label) as HTMLButtonElement
+      made.type = 'button'
+      host.append(made)
+      return made
+    })()
     button.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return
       e.preventDefault()
@@ -151,7 +157,6 @@ export function initMenubar(host: HTMLElement, menus: Array<[string, () => MenuI
     })
     button.addEventListener('pointerenter', () => { if (openIndex !== -1 && openIndex !== index) open(index) })
     buttons.push(button)
-    host.append(button)
   })
   window.addEventListener('keydown', (e) => {
     if (openIndex === -1 || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return

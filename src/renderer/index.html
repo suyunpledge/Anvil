@@ -14,10 +14,18 @@
     <!-- 标题栏（右侧为系统原生窗口按钮，内容避开右侧 150px） -->
     <header id="titlebar">
       <div class="brand"><i data-ic="brand"></i><span class="brand-name">铁砧</span><span class="brand-tag">IDE</span></div>
-      <nav id="menubar" aria-label="菜单栏"></nav>
-      <div class="titlebar-fill"></div>
-      <div class="title-path"><i data-ic="folder"></i><span id="title-folder" class="title-folder">未打开文件夹</span></div>
-      <div class="titlebar-spacer"></div>
+      <!-- 菜单按钮直接写在 HTML 里（标题栏是拖动区，按钮各自设 no-drag），菜单内容由 workbench.ts 绑定 -->
+      <nav id="menubar" aria-label="菜单栏">
+        <button type="button" class="menubar-item">文件</button>
+        <button type="button" class="menubar-item">编辑</button>
+        <button type="button" class="menubar-item">视图</button>
+        <button type="button" class="menubar-item">运行</button>
+        <button type="button" class="menubar-item">终端</button>
+        <button type="button" class="menubar-item">帮助</button>
+      </nav>
+      <div id="titlebar-drag">
+        <div class="title-path"><i data-ic="folder"></i><span id="title-folder" class="title-folder">未打开文件夹</span></div>
+      </div>
     </header>
 
     <!-- 工具栏 -->

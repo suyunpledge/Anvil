@@ -83,8 +83,11 @@ svg.brand-mark { width: 100%; height: 100%; display: block; }
 }
 .title-path svg.ic { width: 13px; height: 13px; opacity: 0.8; }
 #titlebar .title-folder { color: var(--muted); font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#titlebar .titlebar-spacer { flex: 1; padding-right: 160px; }
-#titlebar .titlebar-fill { flex: 1; }
+/* 标题栏整体可拖动（#titlebar 上的 drag），菜单按钮单独 no-drag；中间放当前文件夹，右侧给系统窗口按钮留 150px */
+#titlebar-drag {
+  flex: 1; align-self: stretch; min-width: 0;
+  display: flex; align-items: center; justify-content: center; padding-right: 150px;
+}
 #titlebar .title-path { flex: 0 1 auto; }
 
 /* —— 工具栏 —— */
@@ -881,6 +884,7 @@ body.resizing #editor, body.resizing #terminal { pointer-events: none; }
 /* —— 顶部菜单栏 —— */
 #menubar { display: flex; align-items: center; gap: 1px; margin-left: -4px; -webkit-app-region: no-drag; }
 .menubar-item {
+  -webkit-app-region: no-drag;
   height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent;
   color: var(--text2); font-size: 12.5px; cursor: default; transition: background 0.1s, color 0.1s;
 }
