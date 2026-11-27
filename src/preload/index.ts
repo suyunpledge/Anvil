@@ -21,6 +21,8 @@ const api = {
     return () => ipcRenderer.removeListener('file:pending', cb)
   },
   openFolder: (): Promise<string | null> => ipcRenderer.invoke('folder:open'),
+  pickFolder: (title: string): Promise<string | null> => ipcRenderer.invoke('folder:pick', title),
+  rememberFolder: (folder: string): Promise<boolean> => ipcRenderer.invoke('folder:remember', folder),
   openFileDialog: (): Promise<string | null> => ipcRenderer.invoke('file:open'),
   recentFolders: (): Promise<{
     lastFolder: string | null

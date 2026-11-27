@@ -97,7 +97,15 @@ const SHORTCUTS: Array<[string, Array<[string, string]>]> = [
     ['Ctrl+Shift+E', '资源管理器'], ['Ctrl+Shift+M', '问题面板'], ['Ctrl+Shift+A / W', 'AI 助手 / Work 整理'],
     ['Ctrl+W', '关闭当前标签'], ['Ctrl+Tab', '切换到下一个标签'], ['Ctrl+= / Ctrl+- / Ctrl+0', '放大 / 缩小 / 重置字号']
   ]],
-  ['调试（C/C++）', [['F9', '切换断点']]]
+  ['VS 组合键（在编辑器里，先按前一个再按后一个）', [
+    ['Ctrl+K Ctrl+K', '切换书签'], ['Ctrl+K Ctrl+N / Ctrl+K Ctrl+P', '下一个 / 上一个书签'], ['Ctrl+K Ctrl+W', '书签窗口'],
+    ['Ctrl+K Ctrl+X', '插入代码片段'], ['Ctrl+K Ctrl+C / Ctrl+K Ctrl+U', '注释 / 取消注释'], ['Ctrl+K Ctrl+D', '格式化文档'],
+    ['Ctrl+M Ctrl+M', '折叠 / 展开当前块'], ['Ctrl+M Ctrl+O / Ctrl+M Ctrl+L', '全部折叠 / 全部展开']
+  ]],
+  ['导航与项目', [
+    ['Ctrl+Shift+N', '新建项目'], ['Alt+← / Alt+→', '向后 / 向前导航'], ['Ctrl+Alt+T', '文档大纲'],
+    ['Ctrl+Shift+O', '跳转到函数 / 类'], ['F5 / Ctrl+F5', '运行'], ['F9', '切换断点（C/C++ 调试）']
+  ]]
 ]
 
 export function showShortcuts(): void {

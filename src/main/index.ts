@@ -144,6 +144,16 @@ function registerIpc(): void {
     return r.filePaths[0]
   })
 
+  // 新建项目：只选位置，不记入「最近打开」；项目建好后再记住项目文件夹本身
+  ipcMain.handle('folder:pick', async (_e, title: string) => {
+    const r = await dialog.showOpenDialog(win!, { title, properties: ['openDirectory', 'createDirectory'] })
+    return r.canceled || !r.filePaths.length ? null : r.filePaths[0]
+  })
+  ipcMain.handle('folder:remember', (_e, folder: string) => {
+    rememberFolder(folder)
+    return true
+  })
+
   ipcMain.handle('folder:recent', () => {
     const s = loadSettings()
     return { lastFolder: s.lastFolder, recentFolders: s.recentFolders, lastFile: s.lastFile, recentFiles: s.recentFiles }

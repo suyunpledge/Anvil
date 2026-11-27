@@ -4,7 +4,7 @@ import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import TypeScriptWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-import { bus, state, $, el, showFeedback } from './core'
+import { bus, state, $, el, showFeedback, setStatus } from './core'
 import { icon, fileBadge } from './icons'
 import { showMenu } from './menu'
 
@@ -231,7 +231,9 @@ function activate(t: Tab): void {
 }
 
 export async function openFile(p: string): Promise<void> {
-  const exist = tabs.find((t) => t.path === p)
+  // 也按 Monaco 的 URI 比较：书签、问题面板等从 model.uri.fsPath 拿到的路径盘符是小写（c:\…）
+  const uri = monaco.Uri.file(p).toString()
+  const exist = tabs.find((t) => t.path === p || t.model.uri.toString() === uri)
   if (exist) {
     activate(exist)
     return
@@ -372,6 +374,8 @@ async function saveTab(tab: Tab): Promise<void> {
   await window.ide.writeFile(tab.canonicalPath, tab.model.getValue(undefined, true))
   if (tabs.includes(tab)) cleanVersion.set(tab.path, version)
   renderStrip()
+  setStatus('已保存 ' + (tab.path.split(/[\\/]/).pop() ?? ''), 4000, 'ok')
+  bus.emit('file:saved', tab.path)
 }
 
 export async function saveAll(): Promise<number> {
@@ -385,6 +389,7 @@ export async function saveAll(): Promise<number> {
 }
 
 export async function revealLine(p: string, line: number, col?: number): Promise<void> {
+  bus.emit('nav:before-jump')
   await openFile(p)
   const position = editor.getModel()!.validatePosition({ lineNumber: line, column: col ?? 1 })
   editor.setPosition(position)

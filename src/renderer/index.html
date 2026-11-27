@@ -30,6 +30,11 @@
 
     <!-- 工具栏 -->
     <div id="toolbar">
+      <div class="tb-group tb-nav">
+        <button id="btn-back" class="tb-btn icon-only" title="向后导航（Alt+←）：回到上一个查看的位置" aria-label="向后导航" disabled><i data-ic="arrowLeft"></i></button>
+        <button id="btn-forward" class="tb-btn icon-only" title="向前导航（Alt+→）" aria-label="向前导航" disabled><i data-ic="arrowRight"></i></button>
+      </div>
+      <div class="tb-sep"></div>
       <div class="tb-group">
         <button id="btn-open" class="tb-btn" title="打开一个代码文件夹"><i data-ic="folderOpen"></i><span>打开文件夹</span></button>
         <button id="btn-openfile" class="tb-btn" title="直接打开单个代码文件（也可以把文件直接拖进窗口）"><i data-ic="fileCode"></i><span>打开文件</span></button>
@@ -57,6 +62,7 @@
       <nav id="activitybar" aria-label="活动栏">
         <button class="side-tab active" data-pane="files" title="资源管理器（Ctrl+Shift+E）"><i data-ic="files"></i><span>文件</span></button>
         <button class="side-tab" data-pane="search" title="在项目中搜索（Ctrl+Shift+F）"><i data-ic="search"></i><span>搜索</span></button>
+        <button class="side-tab" data-pane="outline" title="文档大纲：当前文件里的函数、类（Ctrl+Alt+T）"><i data-ic="outline"></i><span>大纲</span></button>
         <button class="side-tab" data-pane="anvil" title="AI 代码助手：读懂、检查、修改代码（Ctrl+Shift+A）"><i data-ic="chat"></i><span>AI 助手</span></button>
         <button class="side-tab" data-pane="anvil" data-mode="work" title="Work 文件整理：让 AI 批量查找、移动文件（Ctrl+Shift+W）"><i data-ic="folders"></i><span>Work</span></button>
         <div class="ab-fill"></div>
@@ -97,6 +103,17 @@
           <p id="search-status" role="status"></p>
           <div id="search-results"></div>
         </div>
+        <div id="pane-outline" class="side-pane">
+          <header class="pane-head">
+            <span class="pane-title">文档大纲</span>
+            <div class="pane-actions">
+              <button id="outline-refresh" class="mini-btn icon-only" title="刷新" aria-label="刷新"><i data-ic="refresh"></i></button>
+              <button id="outline-collapse" class="mini-btn icon-only" title="在编辑器里全部折叠（Ctrl+M Ctrl+O）" aria-label="全部折叠"><i data-ic="collapse"></i></button>
+            </div>
+          </header>
+          <p id="outline-status" class="pane-status"></p>
+          <div id="outline-list"></div>
+        </div>
         <div id="pane-anvil" class="side-pane"></div>
         <div id="pane-settings" class="side-pane">
           <header class="pane-head"><span class="pane-title">设置</span></header>
@@ -106,25 +123,46 @@
       <div id="side-resizer" class="resizer v" title="拖动调整宽度，双击恢复默认（Ctrl+B 显示 / 隐藏侧栏）"></div>
 
       <section id="editor-col">
-        <div id="tabstrip" class="empty"></div>
+        <div id="tabbar">
+          <div id="tabstrip" class="empty"></div>
+          <button id="tab-list" class="mini-btn icon-only" title="所有打开的文件" aria-label="所有打开的文件"><i data-ic="chevronDown"></i></button>
+        </div>
         <div id="breadcrumbs" aria-label="文件路径" hidden></div>
         <div id="editor-host">
           <div id="editor"></div>
+          <!-- 开始页（对标 VS 2022 启动窗口）：左「打开最近使用的内容」，右「开始使用」 -->
           <div id="welcome" class="welcome">
-            <div class="w-logo"><i data-ic="brand"></i></div>
-            <h1>铁砧 <span class="w-accent">IDE</span></h1>
-            <p>好上手的本地代码编辑器 · 内置 Anvil 智能助手与本地模型</p>
-            <div class="w-actions">
-              <button id="w-open" class="big-btn primary"><i data-ic="folderOpen"></i><span>打开文件夹</span></button>
-              <button id="w-openfile" class="big-btn"><i data-ic="fileCode"></i><span>打开文件</span></button>
-              <button id="w-work" class="big-btn work"><i data-ic="folders"></i><span>Work 整理文件</span></button>
+            <div class="start">
+              <header class="start-head">
+                <div class="w-logo"><i data-ic="brand"></i></div>
+                <div>
+                  <h1>铁砧 <span class="w-accent">IDE</span></h1>
+                  <p>好上手的本地代码编辑器 · 一键运行 · 内置本地 AI 助手</p>
+                </div>
+              </header>
+              <div class="start-cols">
+                <section class="start-recent">
+                  <h2>打开最近使用的内容</h2>
+                  <div class="search-box start-filter">
+                    <i data-ic="search"></i>
+                    <input id="w-filter" type="text" placeholder="搜索最近使用的项目和文件" spellcheck="false" autocomplete="off" aria-label="搜索最近使用的内容" />
+                  </div>
+                  <div id="w-recent" class="w-recent"></div>
+                </section>
+                <section class="start-actions">
+                  <h2>开始使用</h2>
+                  <button id="w-newproj" class="start-card primary"><i data-ic="project"></i><span><b>新建项目</b><small>选 C / C++ / Python / Java / JS 模板，自带能直接运行的示例</small></span></button>
+                  <button id="w-open" class="start-card"><i data-ic="folderOpen"></i><span><b>打开文件夹</b><small>打开已有的代码文件夹，左边会列出其中的文件</small></span></button>
+                  <button id="w-openfile" class="start-card"><i data-ic="fileCode"></i><span><b>打开文件</b><small>只打开一个代码文件，也可以直接拖进窗口</small></span></button>
+                  <button id="w-work" class="start-card work"><i data-ic="folders"></i><span><b>Work 整理文件</b><small>用一句话让本地 AI 批量查找、移动文件</small></span></button>
+                  <button id="w-ai" class="start-card"><i data-ic="chat"></i><span><b>问问 AI 助手</b><small>读懂代码、找错误、帮你改代码</small></span></button>
+                  <div class="w-tips">
+                    <div><kbd>F5</kbd> 一键编译运行 · <kbd>Ctrl+Shift+P</kbd> 搜索全部功能</div>
+                    <div><kbd>Ctrl+P</kbd> 按文件名打开 · <kbd>Ctrl+Shift+F</kbd> 在项目中搜索</div>
+                  </div>
+                </section>
+              </div>
             </div>
-            <div class="w-tips">
-              <div><kbd>F5</kbd> 或点「运行」一键编译运行（自动识别 C / C++ / Python / Java / Kotlin / JS / TS）</div>
-              <div>也可以把文件或文件夹直接拖进窗口，导入即可运行</div>
-              <div><kbd>Ctrl+Shift+P</kbd> 搜索全部功能 · <kbd>Ctrl+P</kbd> 按文件名打开 · <kbd>Ctrl+Shift+F</kbd> 在项目中搜索</div>
-            </div>
-            <div id="w-recent" class="w-recent"></div>
           </div>
           <div id="toolbox">
             <button id="toolbox-toggle" type="button" aria-label="工具箱" title="工具箱（可上下拖动）" aria-controls="toolbox-panel" aria-expanded="false">
@@ -175,9 +213,13 @@
           <button class="ptab" data-panel="problems" title="问题（Ctrl+Shift+M）：编译 / 运行报错和语法检查"><i data-ic="problems"></i><span>问题</span><span id="problems-count" class="ptab-count"></span></button>
           <button class="ptab active" data-panel="out"><i data-ic="output"></i><span>输出</span></button>
           <button class="ptab" data-panel="term"><i data-ic="terminal"></i><span>终端</span></button>
+          <button class="ptab" data-panel="tasks" title="任务列表：代码注释里的 TODO / FIXME"><i data-ic="check"></i><span>任务</span><span id="tasks-count" class="ptab-count"></span></button>
+          <button class="ptab" data-panel="bookmarks" title="书签（Ctrl+K Ctrl+K 添加，Ctrl+K Ctrl+W 打开）"><i data-ic="bookmark"></i><span>书签</span><span id="bookmarks-count" class="ptab-count"></span></button>
         </div>
         <span id="console-state"></span>
         <div class="spacer"></div>
+        <button id="tasks-refresh" class="mini-btn icon-only" title="重新查找任务" aria-label="重新查找任务" hidden><i data-ic="refresh"></i></button>
+        <button id="bookmarks-clear" class="mini-btn icon-only" title="清除所有书签（Ctrl+K Ctrl+L）" aria-label="清除所有书签" hidden><i data-ic="trash"></i></button>
         <button id="problems-clear" class="mini-btn icon-only" title="清除运行报错" aria-label="清除运行报错" hidden><i data-ic="trash"></i></button>
         <button id="console-clear" class="mini-btn icon-only" title="清空输出" aria-label="清空输出"><i data-ic="trash"></i></button>
         <button id="console-toggle" class="mini-btn icon-only" title="收起 / 展开" aria-label="收起或展开面板"><i data-ic="chevronDown"></i></button>
@@ -191,6 +233,8 @@
         </div>
       </div>
       <div id="problems-body" class="hidden"><div id="problems-list"></div></div>
+      <div id="tasks-body" class="panel-list hidden"><p id="tasks-status" class="pane-status"></p><div id="tasks-list"></div></div>
+      <div id="bookmarks-body" class="panel-list hidden"><div id="bookmarks-list"></div></div>
       <div id="term-body" class="hidden">
         <div id="terminal"></div>
         <div class="term-hint">终端就绪中…</div>
@@ -199,6 +243,7 @@
 
     <!-- 状态栏 -->
     <footer id="statusbar">
+      <span id="st-message" role="status">就绪</span>
       <button type="button" id="st-compiler" title="检查运行环境">运行环境探测中…</button>
       <button type="button" id="st-problems" class="st-btn" title="没有发现问题"></button>
       <span id="st-anvil">Anvil：未连接</span>

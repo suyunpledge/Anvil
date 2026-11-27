@@ -1,5 +1,5 @@
 import './ui.css'
-import { $, el, bus, showFeedback, showPanel, state, type PanelName } from './core'
+import { $, el, bus, showFeedback, showPanel, state, isChordKey, type PanelName } from './core'
 import { initExplorer, openFolder } from './explorer'
 import { initCursorStatus, saveActive, openFile, revealLine } from './editor'
 import { initRun } from './runpanel'
@@ -11,7 +11,13 @@ import { initSettings } from './settings'
 import { initProblems } from './problems'
 import { initSearchView } from './searchview'
 import { initWorkbench } from './workbench'
-import { hydrateIcons, fileBadge } from './icons'
+import { initOutline } from './outline'
+import { initSnippets } from './snippets'
+import { initBookmarks } from './bookmarks'
+import { initTasks } from './tasks'
+import { initNav } from './nav'
+import { initStartPage, renderRecents } from './startpage'
+import { hydrateIcons } from './icons'
 
 type Panel = PanelName
 
@@ -115,6 +121,12 @@ function attachListeners(): void {
     ['settings', initSettings],
     ['problems', initProblems],
     ['search', initSearchView],
+    ['outline', initOutline],
+    ['snippets', initSnippets],
+    ['bookmarks', initBookmarks],
+    ['tasks', initTasks],
+    ['nav', initNav],
+    ['startpage', initStartPage],
     ['workbench', () => initWorkbench({
       openPicker,
       showPanel: showConsolePanel,
@@ -136,7 +148,7 @@ function attachListeners(): void {
 
   // —— F5 运行；Ctrl+S 保存；Ctrl+` 切终端 ——
   window.addEventListener('keydown', (e) => {
-    if (e.defaultPrevented || e.isComposing || document.querySelector('dialog[open]')) return
+    if (e.defaultPrevented || e.isComposing || isChordKey(e) || document.querySelector('dialog[open]')) return
     if (e.key === 'F5') {
       e.preventDefault()
       ;($('btn-run') as HTMLButtonElement).click()
@@ -293,35 +305,9 @@ async function importFile(p: string): Promise<void> {
   }
 }
 
-// 欢迎页最近列表
+// 开始页「最近使用」（实现见 startpage.ts）
 function buildWelcomeRecents(): void {
-  const box = $('w-recent')
-  box.innerHTML = ''
-  void window.ide.recentFolders().then((r) => {
-    const files = r.recentFiles.slice(0, 4)
-    const folders = r.recentFolders.slice(0, 2)
-    if (!files.length && !folders.length) return
-    for (const f of files) {
-      const item = el('div', 'w-recent-item')
-      item.insertAdjacentHTML('beforeend', fileBadge(f.split(/[\\/]/).pop() ?? f))
-      item.append(el('span', 'tag', '文件'))
-      const name = el('span', '', f.split(/[\\/]/).pop() ?? f)
-      name.title = f
-      item.append(name)
-      item.addEventListener('click', () => void importFile(f))
-      box.append(item)
-    }
-    for (const d of folders) {
-      const item = el('div', 'w-recent-item')
-      item.insertAdjacentHTML('beforeend', fileBadge('', true))
-      item.append(el('span', 'tag', '文件夹'))
-      const name = el('span', '', d)
-      name.title = d
-      item.append(name)
-      item.addEventListener('click', () => void openFolder(d))
-      box.append(item)
-    }
-  })
+  renderRecents(importFile)
 }
 
 void bootstrap()

@@ -1112,3 +1112,162 @@ body.running #statusbar { background: linear-gradient(90deg, #1d8f5d, #23a06a); 
 .ask-dialog.about p { color: var(--text2); font-size: 12.5px; line-height: 1.6; }
 .ask-dialog.about .about-dim { color: var(--muted); font-size: 11.5px; }
 .ask-dialog.about .ask-ok { margin-top: 8px; padding: 0 22px; }
+
+/* ================= v0.1.9：VS 开始页 / 新建项目 / 大纲 / 书签 / 任务列表 / 标签井 / 状态文字 ================= */
+
+/* —— 窄窗口：次要工具栏按钮只留图标，运行按钮和状态标签不换行 —— */
+.run-btn, .anvil-dot, .lang-badge, #btn-work { flex: none; white-space: nowrap; }
+#toolbar { min-width: 0; overflow: hidden; }
+@media (max-width: 1180px) {
+  #toolbar .tb-group:not(.tb-nav) .tb-btn > span { display: none; }
+  #toolbar .tb-group:not(.tb-nav) .tb-btn { width: 32px; padding: 0; }
+}
+@media (max-width: 900px) { #btn-work > span, .lang-badge { display: none; } }
+
+/* —— 工具栏 ← → —— */
+.tb-btn.icon-only { width: 30px; padding: 0; }
+.tb-btn.icon-only svg.ic { width: 16px; height: 16px; }
+.tb-nav { gap: 0; }
+
+/* —— 标签栏 + 右端「所有打开的文件」下拉 —— */
+#tabbar { flex: 0 0 38px; display: flex; align-items: stretch; min-width: 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+#tabbar #tabstrip { flex: 1 1 auto; min-width: 0; border-bottom: 0; }
+#tab-list { flex: none; align-self: center; margin: 0 6px; width: 26px; height: 26px; }
+#tabstrip.empty + #tab-list { display: none; }
+
+/* —— 状态栏左侧的状态文字（就绪 / 正在运行 / 已保存）—— */
+#st-message { display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 10px 0 4px; font-weight: 600; white-space: nowrap; }
+#st-message[data-tone="busy"]::before { content: ''; width: 10px; height: 10px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff; animation: spin 0.8s linear infinite; }
+#st-message[data-tone="error"] { color: #ffd1d6; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* —— 侧栏通用提示 —— */
+.pane-status { padding: 2px 14px 8px; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.pane-status:empty { display: none; }
+
+/* —— 文档大纲 —— */
+#pane-outline.active { display: flex; flex-direction: column; overflow: hidden; }
+#outline-list { flex: 1; min-height: 0; overflow: auto; padding: 0 6px 16px; }
+.ol-row {
+  position: relative; display: flex; align-items: center; gap: 7px; width: 100%; height: 26px; padding-right: 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--text2); text-align: left; cursor: pointer; font-size: 12.5px;
+}
+.ol-row:hover { background: var(--panel2); color: var(--text); }
+.ol-row.current { background: var(--accent-bg); color: var(--text); }
+.ol-row.current::before { content: ''; position: absolute; left: 0; top: 5px; bottom: 5px; width: 2px; border-radius: 2px; background: var(--accent); }
+.ol-kind {
+  flex: none; display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 4px;
+  font: 800 10px/1 var(--mono); color: #fff; background: #5b6478;
+}
+.ol-kind.k-function, .ol-kind.k-method { background: #7c5cd6; }
+.ol-kind.k-class { background: #d98a2b; }
+.ol-kind.k-struct, .ol-kind.k-enum { background: #2f8f7a; }
+.ol-kind.k-heading { background: #4f596b; }
+.ol-kind.k-variable { background: #3d7ab8; }
+.ol-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ol-detail { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 11px var(--mono); }
+.ol-line { flex: none; margin-left: auto; color: var(--muted); font: 10.5px var(--mono); opacity: 0; }
+.ol-row:hover .ol-line, .ol-row.current .ol-line { opacity: 1; }
+
+/* —— 书签：行号左侧的蓝色书签标记 + 淡淡的行底色 —— */
+.monaco-editor .bookmark-mark {
+  margin-left: 2px; width: 7px !important; border-radius: 1px 1px 0 0;
+  background: #7fa2ff; clip-path: polygon(0 12%, 100% 12%, 100% 88%, 50% 66%, 0 88%);
+}
+.monaco-editor .bookmark-line { background: rgba(127, 162, 255, 0.06); }
+
+/* —— 底部面板：任务 / 书签 —— */
+.panel-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; }
+.panel-list.hidden, #console-wrap.collapsed .panel-list { display: none; }
+.task-row, .bm-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 28px; padding: 3px 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 12.5px;
+}
+.task-row:hover, .bm-row:hover { background: var(--panel2); }
+.task-tag { flex: none; min-width: 46px; padding: 1px 6px; border-radius: 5px; font: 700 10.5px/1.6 var(--mono); text-align: center; }
+.task-tag.t-todo { color: #9fd0ff; background: rgba(110, 160, 255, 0.16); }
+.task-tag.t-fixme { color: #ffb3ba; background: rgba(255, 107, 120, 0.16); }
+.task-tag.t-hack { color: #ffd39a; background: rgba(244, 181, 77, 0.16); }
+.task-tag.t-note { color: #b9f0d2; background: rgba(43, 196, 127, 0.15); }
+.task-text, .bm-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-where, .bm-dir { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 11px var(--mono); }
+.bm-flag svg.ic { width: 14px; height: 14px; color: #7fa2ff; }
+.bm-file { flex: none; font: 600 12px var(--mono); color: var(--text2); }
+.bm-text { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.bm-del { width: 22px !important; height: 22px; opacity: 0; }
+.bm-row:hover .bm-del { opacity: 1; }
+#tasks-body .pane-status { padding: 2px 8px 6px; }
+
+/* —— 开始页（VS 2022 启动窗口风格）—— */
+#welcome.welcome { justify-content: flex-start; overflow: auto; padding: 6vh 32px 32px; }
+.start { width: min(1000px, 100%); margin: 0 auto; }
+.start-head { display: flex; align-items: center; gap: 18px; margin-bottom: 30px; }
+.start-head .w-logo { width: 64px; height: 64px; margin: 0; }
+.start-head h1 { font-size: 26px; }
+.start-head p { margin-top: 4px; color: var(--text2); }
+.start-cols { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 1fr); gap: 40px; }
+.start h2 { margin-bottom: 12px; font-size: 15px; font-weight: 600; color: var(--text); }
+.start-filter { margin: 0 0 10px; height: 34px; }
+.start-filter input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; user-select: text; }
+.start .w-recent { width: 100%; margin: 0; gap: 2px; }
+.start .w-recent::before { content: none; }
+.start .w-recent-item {
+  width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent;
+  text-align: left; font: inherit;
+}
+.start .w-recent-item:hover { border-color: var(--border2); background: var(--panel2); }
+.start .w-recent-item .fi { width: 22px; height: 22px; font-size: 8.5px; flex: none; }
+.start .w-recent-item .fi.dir svg.ic { width: 20px; height: 20px; }
+.w-recent-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.w-recent-text b { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-recent-text small { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-empty { padding: 14px 10px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+.start-actions { display: flex; flex-direction: column; gap: 8px; }
+.start-card {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 13px 16px; text-align: left;
+  border: 1px solid var(--border2); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s, box-shadow 0.15s;
+}
+.start-card:hover { border-color: var(--accent); background: var(--panel2); transform: translateY(-1px); box-shadow: 0 8px 20px rgba(6, 8, 16, 0.35); }
+.start-card:focus-visible { outline: none; box-shadow: var(--ring); }
+.start-card > i svg.ic { width: 24px; height: 24px; color: #9db2ff; }
+.start-card > span { display: grid; gap: 3px; min-width: 0; }
+.start-card b { font-size: 14px; font-weight: 600; }
+.start-card small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.start-card.primary { border-color: rgba(110, 143, 255, 0.55); background: linear-gradient(135deg, rgba(110, 143, 255, 0.16), rgba(164, 124, 255, 0.1)); }
+.start-card.work > i svg.ic { color: var(--ember); }
+.start-card.work:hover { border-color: var(--ember); }
+.start .w-tips { margin-top: 10px; text-align: left; line-height: 2; }
+@media (max-width: 860px) { .start-cols { grid-template-columns: 1fr; } }
+
+/* —— 新建项目对话框 —— */
+.ask-dialog.newproj { width: min(860px, calc(100% - 32px)); }
+.np-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 22px; }
+.np-body h3 { margin: 0 0 8px; font-size: 11px; letter-spacing: 0.8px; color: var(--accent); }
+.np-grid { display: grid; gap: 6px; }
+.np-card {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--border2); border-radius: 9px; background: var(--bg); color: var(--text); font: inherit; cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.np-card:hover { border-color: var(--accent); }
+.np-card.active { border-color: var(--accent); background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+.np-card:focus-visible { outline: none; box-shadow: var(--ring); }
+.np-card .fi { width: 26px; height: 26px; font-size: 9.5px; flex: none; }
+.np-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.np-text b { font-size: 13px; }
+.np-text small { color: var(--muted); font-size: 11.5px; }
+.np-file { flex: none; color: var(--muted); font: 11px var(--mono); }
+.np-form { display: grid; gap: 7px; align-content: start; }
+.np-form label { font-size: 12px; font-weight: 600; color: var(--text2); margin-top: 4px; }
+.np-form input {
+  width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--border2); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit; user-select: text;
+}
+.np-form input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+.np-loc { display: flex; gap: 6px; }
+.np-loc input { flex: 1; min-width: 0; }
+.np-loc .tb-btn { flex: none; border-color: var(--border2); background: var(--panel2); }
+.np-preview { margin-top: 4px; padding: 8px 10px; border-radius: 7px; background: var(--bg0); color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.np-preview code { color: var(--text2); font: 11.5px var(--mono); }
+@media (max-width: 760px) { .np-body { grid-template-columns: 1fr; } }

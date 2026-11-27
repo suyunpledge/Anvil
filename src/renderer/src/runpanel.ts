@@ -1,4 +1,4 @@
-import { $, el, showPanel } from './core'
+import { $, el, showPanel, setStatus } from './core'
 import { saveActive, activeTab, revealLine } from './editor'
 import { beginRun, runStderr } from './problems'
 import { languageKind, languageNames } from '../../shared/languages'
@@ -31,6 +31,7 @@ function setRunning(on: boolean, sid?: number): void {
   btnRun.disabled = on
   btnStop.disabled = !on
   document.body.classList.toggle('running', on)
+  if (on) setStatus('正在运行 ' + (activeTab()?.path.split(/[\\/]/).pop() ?? '') + '…', 0, 'busy')
   $('console-state').textContent = on ? '运行中…' : ''
   $('console-wrap').classList.remove('collapsed')
   showPanel('out')
@@ -124,6 +125,8 @@ export async function initRun(): Promise<void> {
         info.code === 0 ? 'co-ok' : 'co-dim'
       )
       setRunning(false)
+      if (info.code === 0) setStatus('运行完成', 6000, 'ok')
+      else setStatus(`运行结束（退出码 ${info.code ?? '被终止'}）——有报错可看「问题」面板`, 9000, 'error')
     }
   })
   window.ide.onRunNoCompiler(({ need }) => {

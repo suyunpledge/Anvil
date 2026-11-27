@@ -1,11 +1,15 @@
 import * as monaco from 'monaco-editor'
-import { $, bus, state, showFeedback, type PanelName } from './core'
-import { activeTab, allTabs, closeTab, closeTabs, cycleTab, editor, hasUnsavedTabs, saveAll } from './editor'
+import { $, bus, state, showFeedback, isChordKey, type PanelName } from './core'
+import { activeTab, allTabs, closeTab, closeTabs, cycleTab, editor, hasUnsavedTabs, isDirty, openFile, saveAll } from './editor'
 import { initMenubar, showMenu, type MenuItem } from './menu'
 import { newEntry } from './explorer'
 import { settings, toggleSetting, zoom } from './settings'
 import { editorAction, openSearchView } from './toolbox'
 import { showShortcuts, showAbout } from './dialogs'
+import { insertSnippetMenu } from './snippets'
+import { toggleBookmark, jumpBookmark, clearBookmarks } from './bookmarks'
+import { goBack, goForward, canGoBack, canGoForward } from './nav'
+import { newProjectDialog } from './startpage'
 import type { PickerMode } from './quick-picker'
 import type { initDebugger } from './debugger'
 
@@ -42,6 +46,7 @@ export function initWorkbench(ctx: {
 
   const menus: Array<[string, () => MenuItem[]]> = [
     ['文件', () => [
+      { label: '新建项目…', icon: 'project', shortcut: 'Ctrl+Shift+N', run: newProjectDialog },
       { label: '新建文件…', icon: 'filePlus', shortcut: 'Ctrl+N', run: () => hasFolder() ? newEntry(false) : $('btn-newfile').click() },
       { label: '新建文件夹…', icon: 'folderPlus', enabled: hasFolder, run: () => newEntry(true) },
       '-',
@@ -81,7 +86,17 @@ export function initWorkbench(ctx: {
       { label: '向上移动行', shortcut: 'Alt+↑', enabled: hasFile, run: run('editor.action.moveLinesUpAction') },
       { label: '向下移动行', shortcut: 'Alt+↓', enabled: hasFile, run: run('editor.action.moveLinesDownAction') },
       { label: '向下复制行', shortcut: 'Shift+Alt+↓', enabled: hasFile, run: run('editor.action.copyLinesDownAction') },
-      { label: '格式化文档', shortcut: 'Shift+Alt+F', enabled: () => ['json', 'javascript', 'typescript', 'css', 'html'].includes(activeTab()?.model.getLanguageId() ?? ''), run: run('editor.action.formatDocument') },
+      { label: '格式化文档', shortcut: 'Ctrl+K Ctrl+D', enabled: () => ['json', 'javascript', 'typescript', 'css', 'html'].includes(activeTab()?.model.getLanguageId() ?? ''), run: run('editor.action.formatDocument') },
+      { label: '插入代码片段…', icon: 'snippet', shortcut: 'Ctrl+K Ctrl+X', enabled: hasFile, run: insertSnippetMenu },
+      '-',
+      { label: '切换书签', icon: 'bookmark', shortcut: 'Ctrl+K Ctrl+K', enabled: hasFile, run: toggleBookmark },
+      { label: '下一个书签', shortcut: 'Ctrl+K Ctrl+N', run: () => jumpBookmark(1) },
+      { label: '上一个书签', shortcut: 'Ctrl+K Ctrl+P', run: () => jumpBookmark(-1) },
+      { label: '清除所有书签', shortcut: 'Ctrl+K Ctrl+L', run: clearBookmarks },
+      '-',
+      { label: '折叠 / 展开当前块', shortcut: 'Ctrl+M Ctrl+M', enabled: hasFile, run: run('editor.toggleFold') },
+      { label: '全部折叠（只看函数名）', shortcut: 'Ctrl+M Ctrl+O', enabled: hasFile, run: run('editor.foldAll') },
+      { label: '全部展开', shortcut: 'Ctrl+M Ctrl+L', enabled: hasFile, run: run('editor.unfoldAll') },
       '-',
       { label: '全选', shortcut: 'Ctrl+A', enabled: hasFile, run: run('editor.action.selectAll') }
     ]],
@@ -90,13 +105,18 @@ export function initWorkbench(ctx: {
       { label: '快速打开文件…', icon: 'search', shortcut: 'Ctrl+P', run: () => ctx.openPicker('files') },
       { label: '跳转到行…', shortcut: 'Ctrl+G', enabled: hasFile, run: run('editor.action.gotoLine') },
       { label: '跳转到符号…', shortcut: 'Ctrl+Shift+O', enabled: hasFile, run: run('editor.action.quickOutline') },
+      { label: '向后导航', icon: 'arrowLeft', shortcut: 'Alt+←', enabled: canGoBack, run: goBack },
+      { label: '向前导航', icon: 'arrowRight', shortcut: 'Alt+→', enabled: canGoForward, run: goForward },
       '-',
       { label: '资源管理器', icon: 'files', shortcut: 'Ctrl+Shift+E', run: () => bus.emit('pane:show', 'files') },
       { label: '搜索', icon: 'search', shortcut: 'Ctrl+Shift+F', run: openSearchView },
+      { label: '文档大纲', icon: 'outline', shortcut: 'Ctrl+Alt+T', run: () => bus.emit('pane:show', 'outline') },
       { label: 'AI 助手', icon: 'chat', shortcut: 'Ctrl+Shift+A', run: () => bus.emit('ai:open', 'code') },
       { label: 'Work 文件整理', icon: 'folders', shortcut: 'Ctrl+Shift+W', run: () => bus.emit('ai:open', 'work') },
       '-',
-      { label: '问题', icon: 'problems', shortcut: 'Ctrl+Shift+M', run: () => ctx.showPanel('problems') },
+      { label: '问题（错误列表）', icon: 'problems', shortcut: 'Ctrl+Shift+M', run: () => ctx.showPanel('problems') },
+      { label: '任务列表（TODO）', icon: 'check', run: () => ctx.showPanel('tasks') },
+      { label: '书签', icon: 'bookmark', shortcut: 'Ctrl+K Ctrl+W', run: () => ctx.showPanel('bookmarks') },
       { label: '输出', icon: 'output', run: () => ctx.showPanel('out') },
       { label: '终端', icon: 'terminal', shortcut: 'Ctrl+`', run: () => ctx.showPanel('term') },
       '-',
@@ -111,7 +131,7 @@ export function initWorkbench(ctx: {
       { label: '重置缩放', shortcut: 'Ctrl+0', run: () => zoom(0) }
     ]],
     ['运行', () => [
-      { label: '运行当前文件', icon: 'play', shortcut: 'F5', enabled: () => !($('btn-run') as HTMLButtonElement).disabled, run: () => $('btn-run').click() },
+      { label: '运行当前文件', icon: 'play', shortcut: 'F5 / Ctrl+F5', enabled: () => !($('btn-run') as HTMLButtonElement).disabled, run: () => $('btn-run').click() },
       { label: '停止运行', icon: 'stop', enabled: () => !($('btn-stop') as HTMLButtonElement).disabled, run: () => $('btn-stop').click() },
       '-',
       { label: '调试当前 C/C++ 文件', icon: 'bug', enabled: ctx.debug.available, run: ctx.debug.open },
@@ -140,7 +160,7 @@ export function initWorkbench(ctx: {
 
   // —— 全局快捷键（编辑器内部已有的 Ctrl+F / Ctrl+/ 等交给 Monaco）——
   window.addEventListener('keydown', (e) => {
-    if (e.defaultPrevented || e.isComposing || document.querySelector('dialog[open]')) return
+    if (e.defaultPrevented || e.isComposing || isChordKey(e) || document.querySelector('dialog[open]')) return
     const ctrl = e.ctrlKey || e.metaKey
     const key = e.key.toLowerCase()
     const handle = (fn: () => unknown): void => {
@@ -149,8 +169,14 @@ export function initWorkbench(ctx: {
       void Promise.resolve().then(fn).catch(report)
     }
     if (ctrl && e.key === 'Tab') return handle(() => cycleTab(e.shiftKey ? -1 : 1))
+    // 向后 / 向前导航（VS Code 同款 Alt+← / Alt+→）
+    if (e.altKey && !ctrl && !e.shiftKey && e.key === 'ArrowLeft') return handle(goBack)
+    if (e.altKey && !ctrl && !e.shiftKey && e.key === 'ArrowRight') return handle(goForward)
+    // VS「文档大纲」Ctrl+Alt+T
+    if (ctrl && e.altKey && !e.shiftKey && key === 't') return handle(() => bus.emit('pane:show', 'outline'))
     if (!ctrl || e.altKey) return
     if (e.shiftKey) {
+      if (key === 'n') return handle(newProjectDialog)
       if (key === 'e') return handle(() => bus.emit('pane:show', 'files'))
       if (key === 'm') return handle(() => ctx.showPanel('problems'))
       if (key === 's') return handle(saveEverything)
@@ -174,6 +200,56 @@ export function initWorkbench(ctx: {
 
   // 资源管理器里「还没打开文件夹」时的大按钮
   $('ex-open').addEventListener('click', () => void ctx.openFolderDlg().catch(report))
+
+  // —— VS 键盘方案的组合键（Ctrl+K / Ctrl+M 开头的两段式），只在编辑器里生效；部分同时进右键菜单 ——
+  const K = monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK
+  const M = monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyM
+  const chord = (first: number, key: monaco.KeyCode): number => monaco.KeyMod.chord(first, monaco.KeyMod.CtrlCmd | key)
+  const vsActions: Array<{ id: string; label: string; keys: number[]; menu?: string; order?: number; run: () => unknown }> = [
+    { id: 'anvil.bookmark.toggle', label: '切换书签', keys: [chord(K, monaco.KeyCode.KeyK)], menu: '8_anvil', order: 1, run: toggleBookmark },
+    { id: 'anvil.bookmark.next', label: '下一个书签', keys: [chord(K, monaco.KeyCode.KeyN)], run: () => jumpBookmark(1) },
+    { id: 'anvil.bookmark.prev', label: '上一个书签', keys: [chord(K, monaco.KeyCode.KeyP)], run: () => jumpBookmark(-1) },
+    { id: 'anvil.bookmark.clear', label: '清除所有书签', keys: [chord(K, monaco.KeyCode.KeyL)], run: clearBookmarks },
+    { id: 'anvil.bookmark.window', label: '书签窗口', keys: [chord(K, monaco.KeyCode.KeyW)], run: () => ctx.showPanel('bookmarks') },
+    { id: 'anvil.snippet.insert', label: '插入代码片段…', keys: [chord(K, monaco.KeyCode.KeyX)], menu: '8_anvil', order: 2, run: insertSnippetMenu },
+    { id: 'anvil.format.vs', label: '格式化文档（VS）', keys: [chord(K, monaco.KeyCode.KeyD)], run: () => editorAction('editor.action.formatDocument') },
+    { id: 'anvil.fold.toggle', label: '折叠 / 展开当前块', keys: [chord(M, monaco.KeyCode.KeyM)], run: () => editorAction('editor.toggleFold') },
+    { id: 'anvil.fold.all', label: '全部折叠', keys: [chord(M, monaco.KeyCode.KeyO)], run: () => editorAction('editor.foldAll') },
+    { id: 'anvil.fold.none', label: '全部展开', keys: [chord(M, monaco.KeyCode.KeyL)], run: () => editorAction('editor.unfoldAll') },
+    { id: 'anvil.search.selection', label: '在项目中搜索选中内容', keys: [], menu: '8_anvil', order: 3, run: openSearchView }
+  ]
+  for (const a of vsActions) {
+    editor.addAction({
+      id: a.id, label: a.label, keybindings: a.keys,
+      contextMenuGroupId: a.menu, contextMenuOrder: a.order,
+      run: () => { void Promise.resolve().then(a.run).catch(report) }
+    })
+  }
+
+  // —— 标签栏右端「所有打开的文件」下拉（对标 VS 的文档井下拉）——
+  $('tab-list').addEventListener('click', () => {
+    const tabs = allTabs()
+    showMenu(tabs.length ? [
+      ...tabs.map((t) => ({
+        label: (isDirty(t) ? '● ' : '') + (t.path.split(/[\\/]/).pop() ?? t.path),
+        shortcut: t.path.replace(/[\\/][^\\/]*$/, '').split(/[\\/]/).slice(-2).join('\\'),
+        checked: () => activeTab() === t,
+        run: () => openFile(t.path)
+      })),
+      '-' as const,
+      { label: '全部关闭', icon: 'x', run: () => { closeTabs([...tabs]) } }
+    ] : [{ label: '没有打开的文件', enabled: () => false, run: () => undefined }], $('tab-list'), { onError: report })
+  })
+
+  // —— 工具栏 ← → 导航按钮 ——
+  const backBtn = $('btn-back') as HTMLButtonElement
+  const fwdBtn = $('btn-forward') as HTMLButtonElement
+  backBtn.addEventListener('click', () => void goBack())
+  fwdBtn.addEventListener('click', () => void goForward())
+  bus.on('nav:changed', () => {
+    backBtn.disabled = !canGoBack()
+    fwdBtn.disabled = !canGoForward()
+  })
 
   // —— 状态栏：缩进、换行符、语言（点击可改，与 VS Code 一致）——
   const indent = $('st-indent') as HTMLButtonElement

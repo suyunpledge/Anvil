@@ -1,8 +1,11 @@
-import { $, el, bus, showFeedback, type PanelName } from './core'
+import { $, el, bus, showFeedback, isChordKey, type PanelName } from './core'
 import { activeTab, editor, hasUnsavedTabs, saveAll } from './editor'
 import { initQuickPicker, type PickerMode } from './quick-picker'
 import { toggleSetting, zoom } from './settings'
 import { showShortcuts } from './dialogs'
+import { insertSnippetMenu } from './snippets'
+import { toggleBookmark, jumpBookmark } from './bookmarks'
+import { newProjectDialog } from './startpage'
 import type { initDebugger } from './debugger'
 
 type Panel = PanelName
@@ -99,6 +102,17 @@ export function initToolbox(options: {
       { title: '缩小编辑器字号', shortcut: 'Ctrl+-', run: () => zoom(-1) },
       { title: '恢复默认字号', shortcut: 'Ctrl+0', run: () => zoom(0) }
     ],
+    'VS 功能': [
+      { title: '新建项目（C / C++ / Python / Java / JS 模板）', shortcut: 'Ctrl+Shift+N', run: () => newProjectDialog() },
+      { title: '插入代码片段', shortcut: 'Ctrl+K Ctrl+X', available: hasFile, run: insertSnippetMenu },
+      { title: '切换书签', shortcut: 'Ctrl+K Ctrl+K', available: hasFile, run: toggleBookmark },
+      { title: '下一个书签', shortcut: 'Ctrl+K Ctrl+N', run: () => jumpBookmark(1) },
+      { title: '书签窗口', shortcut: 'Ctrl+K Ctrl+W', run: () => options.showPanel('bookmarks') },
+      { title: '任务列表（TODO / FIXME）', run: () => options.showPanel('tasks') },
+      { title: '文档大纲', shortcut: 'Ctrl+Alt+T', run: () => bus.emit('pane:show', 'outline') },
+      { title: '全部折叠', shortcut: 'Ctrl+M Ctrl+O', available: hasFile, run: () => editorAction('editor.foldAll') },
+      { title: '全部展开', shortcut: 'Ctrl+M Ctrl+L', available: hasFile, run: () => editorAction('editor.unfoldAll') }
+    ],
     设置与帮助: [
       { title: '设置', shortcut: 'Ctrl+,', run: () => bus.emit('pane:show', 'settings') },
       { title: '键盘快捷键一览', run: showShortcuts }
@@ -194,7 +208,7 @@ export function initToolbox(options: {
     if (!toolbox.contains(event.target as Node)) setOpen(false)
   })
   window.addEventListener('keydown', (event) => {
-    if (event.defaultPrevented || event.isComposing || document.querySelector('dialog[open]')) return
+    if (event.defaultPrevented || event.isComposing || isChordKey(event) || document.querySelector('dialog[open]')) return
     if (event.key === 'Escape' && !panel.hidden) {
       setOpen(false, toolbox.contains(document.activeElement))
       return
