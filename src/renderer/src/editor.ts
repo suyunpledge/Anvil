@@ -33,10 +33,7 @@ let active: Tab | null = null
 const cleanVersion = new Map<string, number>()
 
 // 编辑器配色：与界面同一套颜色（ui.css 的 --bg / --accent 等）
-monaco.editor.defineTheme('anvil-dark', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [
+const THEME_RULES: monaco.editor.ITokenThemeRule[] = [
     { token: 'comment', foreground: '636e86', fontStyle: 'italic' },
     { token: 'keyword', foreground: 'c792ea' },
     { token: 'string', foreground: 'b8e08a' },
@@ -49,8 +46,8 @@ monaco.editor.defineTheme('anvil-dark', {
     { token: 'tag', foreground: 'f07178' },
     { token: 'attribute.name', foreground: 'ffcb6b' },
     { token: 'regexp', foreground: '89ddff' }
-  ],
-  colors: {
+]
+const THEME_COLORS: Record<string, string> = {
     'editor.background': '#171b24',
     'editor.foreground': '#e6e9f1',
     'editorLineNumber.foreground': '#465068',
@@ -81,6 +78,28 @@ monaco.editor.defineTheme('anvil-dark', {
     'scrollbarSlider.background': '#7f8ca833',
     'scrollbarSlider.hoverBackground': '#7f8ca855',
     'minimap.background': '#151922'
+}
+monaco.editor.defineTheme('anvil-dark', { base: 'vs-dark', inherit: true, rules: THEME_RULES, colors: THEME_COLORS })
+// 星空极光主题：编辑区半透明，透出背后的极光；浮层（补全、悬停、粘性滚动）保持不透明，保证可读
+monaco.editor.defineTheme('anvil-aurora', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [...THEME_RULES, { token: 'comment', foreground: '7c88a6', fontStyle: 'italic' }],
+  colors: {
+    ...THEME_COLORS,
+    // Monaco 根元素和内容层各铺一次背景色，两层叠加后约 85% 不透明：极光隐约可见，代码依然清楚
+    'editor.background': '#0a10249c',
+    'editorGutter.background': '#0a10249c',
+    'minimap.background': '#0a102466',
+    'editor.lineHighlightBackground': '#ffffff0a',
+    'editorLineNumber.foreground': '#56628a',
+    'editorStickyScroll.background': '#0d1430f2',
+    'editorStickyScrollHover.background': '#141c3d',
+    'editorWidget.background': '#121a36',
+    'editorSuggestWidget.background': '#121a36',
+    'editorHoverWidget.background': '#121a36',
+    'editorIndentGuide.background1': '#2a3352',
+    'editorIndentGuide.activeBackground1': '#43507a'
   }
 })
 

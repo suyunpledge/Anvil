@@ -146,7 +146,7 @@ export function showAbout(): void {
   dialog.innerHTML = `<div class="about-logo"><i data-ic="brand"></i></div>`
   hydrateIcons(dialog)
   dialog.append(
-    el('h2', '', '铁砧 IDE'),
+    el('h2', '', 'Anvil IDE'),
     el('p', '', '好上手的本地代码编辑器：一键运行、本地 AI 助手、Work 文件整理。'),
     el('p', 'about-dim', '编辑器内核：Monaco（与 VS Code 相同）· 本地模型：Ollama')
   )

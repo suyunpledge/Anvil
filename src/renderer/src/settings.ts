@@ -1,5 +1,7 @@
 import { el, bus, showFeedback } from './core'
+import * as monaco from 'monaco-editor'
 import { editor, saveAll, hasUnsavedTabs } from './editor'
+import { setSky } from './sky'
 
 // —— 设置：编辑器外观 / 行为，存在 localStorage，改完立即生效 ——
 
@@ -12,13 +14,14 @@ export interface Settings {
   ligatures: boolean
   whitespace: boolean
   stickyScroll: boolean
+  aurora: boolean
   autoSave: 'off' | 'delay' | 'focus'
 }
 
 const KEY = 'anvil.settings'
 const DEFAULTS: Settings = {
   fontSize: 14, tabSize: 4, wordWrap: false, minimap: false, lineNumbers: true,
-  ligatures: true, whitespace: false, stickyScroll: true, autoSave: 'off'
+  ligatures: true, whitespace: false, stickyScroll: true, aurora: true, autoSave: 'off'
 }
 
 let current: Settings = load()
@@ -42,7 +45,7 @@ export function setSetting<K extends keyof Settings>(key: K, value: Settings[K])
   render()
 }
 
-export function toggleSetting(key: 'wordWrap' | 'minimap' | 'lineNumbers' | 'whitespace' | 'stickyScroll'): void {
+export function toggleSetting(key: 'wordWrap' | 'minimap' | 'lineNumbers' | 'whitespace' | 'stickyScroll' | 'aurora'): void {
   setSetting(key, !current[key])
 }
 
@@ -65,6 +68,9 @@ function apply(): void {
     stickyScroll: { enabled: s.stickyScroll },
     mouseWheelZoom: false
   })
+  // 星空极光：背景层 + 半透明的编辑器主题一起切换
+  monaco.editor.setTheme(s.aurora ? 'anvil-aurora' : 'anvil-dark')
+  setSky(s.aurora)
   // tabSize 作用在文本模型上
   editor.getModel()?.updateOptions({ tabSize: s.tabSize, indentSize: s.tabSize })
   bus.emit('settings:changed')
@@ -80,7 +86,7 @@ function autoSaveNow(): void {
 // —— 设置面板 ——
 type Row =
   | { kind: 'number'; key: 'fontSize' | 'tabSize'; label: string; hint?: string; min: number; max: number }
-  | { kind: 'bool'; key: 'wordWrap' | 'minimap' | 'lineNumbers' | 'ligatures' | 'whitespace' | 'stickyScroll'; label: string; hint?: string }
+  | { kind: 'bool'; key: 'wordWrap' | 'minimap' | 'lineNumbers' | 'ligatures' | 'whitespace' | 'stickyScroll' | 'aurora'; label: string; hint?: string }
   | { kind: 'select'; key: 'autoSave'; label: string; hint?: string; options: Array<[Settings['autoSave'], string]> }
 
 const ROWS: Array<[string, Row[]]> = [
@@ -93,6 +99,7 @@ const ROWS: Array<[string, Row[]]> = [
     { kind: 'bool', key: 'whitespace', label: '显示空格和 Tab', hint: '排查缩进问题（尤其是 Python）时很有用' }
   ]],
   ['界面', [
+    { kind: 'bool', key: 'aurora', label: '星空极光背景', hint: '窗口背后铺一层星空和流动的极光，面板半透明。关闭后恢复纯色背景，更省电' },
     { kind: 'bool', key: 'minimap', label: '代码缩略图', hint: '编辑器右侧的整页缩略图' },
     { kind: 'bool', key: 'stickyScroll', label: '粘性滚动', hint: '滚动时把当前所在的函数 / 类固定在顶部' }
   ]],

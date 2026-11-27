@@ -1271,3 +1271,114 @@ body.running #statusbar { background: linear-gradient(90deg, #1d8f5d, #23a06a); 
 .np-preview { margin-top: 4px; padding: 8px 10px; border-radius: 7px; background: var(--bg0); color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .np-preview code { color: var(--text2); font: 11.5px var(--mono); }
 @media (max-width: 760px) { .np-body { grid-template-columns: 1fr; } }
+
+/* ================= v0.2.0：星空极光背景（设置里可关）================= */
+#app { position: relative; z-index: 1; }
+#sky { position: fixed; inset: 0; z-index: 0; display: none; overflow: hidden; pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 50% 118%, rgba(70, 40, 150, 0.5), transparent 62%),
+    radial-gradient(70% 55% at 88% -12%, rgba(24, 70, 160, 0.4), transparent 62%),
+    radial-gradient(60% 50% at 8% 0%, rgba(20, 110, 130, 0.22), transparent 60%),
+    linear-gradient(180deg, #02040c 0%, #060b20 42%, #0b1236 100%);
+}
+body.aurora { background: #050817; }
+body.aurora #sky { display: block; }
+.sky-stars { position: absolute; inset: 0; }
+
+/* 极光带：大块模糊的彩色光，只动 transform / opacity */
+.aurora-band { position: absolute; left: -25%; width: 150%; top: 2%; height: 72%; mix-blend-mode: screen; transform-origin: 50% 0; will-change: transform, opacity; pointer-events: none; }
+.aurora-band.a1 {
+  filter: blur(46px); opacity: 0.6;
+  background:
+    radial-gradient(38% 30% at 30% 42%, rgba(60, 255, 185, 0.6), transparent 70%),
+    radial-gradient(30% 26% at 50% 52%, rgba(40, 215, 255, 0.5), transparent 72%),
+    radial-gradient(24% 20% at 16% 34%, rgba(110, 255, 160, 0.35), transparent 70%);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+.aurora-band.a2 {
+  filter: blur(52px); opacity: 0.62;
+  background:
+    radial-gradient(34% 28% at 70% 36%, rgba(150, 105, 255, 0.55), transparent 70%),
+    radial-gradient(26% 22% at 86% 50%, rgba(255, 105, 200, 0.35), transparent 72%),
+    radial-gradient(28% 22% at 58% 26%, rgba(70, 150, 255, 0.35), transparent 70%);
+  animation: aurora-b 32s ease-in-out infinite alternate;
+}
+/* 竖向光丝：极光「帘幕」的质感 */
+.aurora-band.a3 {
+  top: 8%; height: 50%; filter: blur(12px); opacity: 0.46;
+  background:
+    radial-gradient(46% 34% at 42% 40%, rgba(90, 255, 190, 0.55), transparent 72%),
+    radial-gradient(30% 26% at 66% 34%, rgba(120, 140, 255, 0.45), transparent 70%);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 3px, rgba(0, 0, 0, 0.35) 3px 9px, #000 9px 11px, rgba(0, 0, 0, 0.2) 11px 19px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 3px, rgba(0, 0, 0, 0.35) 3px 9px, #000 9px 11px, rgba(0, 0, 0, 0.2) 11px 19px);
+  animation: aurora-c 21s ease-in-out infinite alternate;
+}
+@keyframes aurora-a {
+  0% { transform: translateX(-7%) skewX(-10deg) scaleY(0.95); opacity: 0.5; }
+  50% { transform: translateX(3%) skewX(6deg) scaleY(1.15); opacity: 0.72; }
+  100% { transform: translateX(9%) skewX(-3deg) scaleY(1); opacity: 0.55; }
+}
+@keyframes aurora-b {
+  0% { transform: translateX(6%) skewX(8deg) scaleY(1.05); opacity: 0.38; }
+  50% { transform: translateX(-4%) skewX(-6deg) scaleY(0.9); opacity: 0.6; }
+  100% { transform: translateX(-9%) skewX(4deg) scaleY(1.12); opacity: 0.45; }
+}
+@keyframes aurora-c {
+  0% { transform: translateX(-4%) skewX(-14deg); opacity: 0.3; }
+  50% { transform: translateX(5%) skewX(10deg); opacity: 0.5; }
+  100% { transform: translateX(-2%) skewX(-6deg); opacity: 0.36; }
+}
+
+/* 闪烁星 */
+.sky-twinkles { position: absolute; inset: 0; }
+.sky-twinkles i {
+  position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 6px 1px rgba(200, 230, 255, 0.85); animation: twinkle 4s ease-in-out infinite;
+}
+@keyframes twinkle { 0%, 100% { opacity: 0.15; transform: scale(0.6); } 50% { opacity: 1; transform: scale(1.25); } }
+
+/* 流星 */
+.meteor {
+  position: absolute; width: 170px; height: 2px; border-radius: 2px; opacity: 0; transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(190, 225, 255, 0.55) 70%, #fff);
+  filter: drop-shadow(0 0 6px rgba(170, 215, 255, 0.9));
+}
+.meteor.go { animation: meteor 1.5s ease-out; }
+@keyframes meteor {
+  0% { opacity: 0; transform: rotate(150deg) translateX(0); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(150deg) translateX(520px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora-band, .sky-twinkles i, .meteor { animation: none !important; }
+}
+
+/* —— 极光模式下：各块面板半透明 + 毛玻璃，透出星空 —— */
+body.aurora #titlebar { background: rgba(8, 12, 30, 0.9); border-bottom-color: rgba(255, 255, 255, 0.05); }
+body.aurora #toolbar { background: rgba(10, 15, 38, 0.58); border-bottom-color: rgba(255, 255, 255, 0.06); backdrop-filter: blur(16px) saturate(140%); }
+body.aurora #activitybar { background: rgba(6, 9, 24, 0.55); border-right-color: rgba(255, 255, 255, 0.05); backdrop-filter: blur(16px); }
+body.aurora #sidebar { background: rgba(12, 17, 42, 0.5); border-right-color: rgba(255, 255, 255, 0.06); backdrop-filter: blur(18px) saturate(140%); }
+body.aurora #debug-pane { background: rgba(12, 17, 42, 0.7); border-left-color: rgba(255, 255, 255, 0.06); backdrop-filter: blur(18px); }
+body.aurora #editor-col { background: transparent; }
+body.aurora #tabbar { background: rgba(10, 15, 38, 0.6); border-bottom-color: rgba(255, 255, 255, 0.06); backdrop-filter: blur(16px); }
+body.aurora .tab { border-right-color: rgba(255, 255, 255, 0.05); }
+body.aurora .tab.active { background: rgba(10, 16, 40, 0.78); }
+body.aurora .tab.active::after { background: transparent; }
+body.aurora #breadcrumbs { background: rgba(10, 16, 40, 0.62); border-bottom-color: rgba(255, 255, 255, 0.04); }
+body.aurora #console-wrap { background: rgba(5, 8, 22, 0.74); border-top-color: rgba(255, 255, 255, 0.07); backdrop-filter: blur(18px); }
+body.aurora #console-head, body.aurora #console-input-row, body.aurora .term-hint { background: rgba(12, 17, 42, 0.55); border-color: rgba(255, 255, 255, 0.06); }
+body.aurora .resizer.v, body.aurora .resizer.h { background: transparent; }
+/* 状态栏用极光配色 */
+body.aurora #statusbar { background: linear-gradient(90deg, rgba(24, 160, 140, 0.92), rgba(60, 110, 230, 0.92) 55%, rgba(135, 80, 220, 0.92)); }
+body.aurora.running #statusbar { background: linear-gradient(90deg, #1d8f5d, #23a06a); }
+/* 开始页直接看到整片星空（开始页显示时把下面的空编辑器藏起来，不然会透出行号） */
+#editor-host:has(> .welcome:not(.hidden)) > #editor { visibility: hidden; }
+body.aurora .welcome { background: radial-gradient(60% 50% at 50% 30%, rgba(5, 8, 22, 0.35), transparent 70%); }
+body.aurora .start-card, body.aurora .start-filter { background: rgba(14, 20, 48, 0.58); border-color: rgba(150, 170, 255, 0.18); backdrop-filter: blur(12px); }
+body.aurora .start-card:hover { background: rgba(24, 32, 72, 0.7); border-color: var(--accent); }
+body.aurora .start-card.primary { background: linear-gradient(135deg, rgba(60, 230, 180, 0.16), rgba(110, 143, 255, 0.2), rgba(164, 124, 255, 0.16)); border-color: rgba(120, 200, 255, 0.45); }
+body.aurora .start .w-recent-item:hover { background: rgba(24, 32, 72, 0.6); }
+body.aurora .w-accent { background: linear-gradient(90deg, #4af2c4, #6ea2ff 55%, #b27cff); -webkit-background-clip: text; background-clip: text; }
+body.aurora .start-head .w-logo { filter: drop-shadow(0 0 26px rgba(90, 230, 200, 0.35)) drop-shadow(0 14px 30px rgba(120, 110, 255, 0.3)); }
+/* 品牌名带一点极光渐变 */
+body.aurora .brand-name { background: linear-gradient(90deg, #e9fff9, #b9d4ff); -webkit-background-clip: text; background-clip: text; color: transparent; }

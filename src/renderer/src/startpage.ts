@@ -19,23 +19,23 @@ interface Template {
 const TEMPLATES: Template[] = [
   {
     id: 'c', title: 'C 控制台程序', desc: '最经典的入门：printf 输出、scanf 读入', badge: 'main.c', file: 'main.c', defaultName: 'HelloC',
-    body: '#include <stdio.h>\n\nint main(void) {\n    printf("你好，铁砧！\\n");\n\n    // TODO: 在这里写你的代码，按 F5 运行\n    int a, b;\n    printf("输入两个整数：");\n    scanf("%d %d", &a, &b);\n    printf("它们的和是 %d\\n", a + b);\n    return 0;\n}\n'
+    body: '#include <stdio.h>\n\nint main(void) {\n    printf("你好，Anvil！\\n");\n\n    // TODO: 在这里写你的代码，按 F5 运行\n    int a, b;\n    printf("输入两个整数：");\n    scanf("%d %d", &a, &b);\n    printf("它们的和是 %d\\n", a + b);\n    return 0;\n}\n'
   },
   {
     id: 'cpp', title: 'C++ 控制台程序', desc: 'iostream 输入输出，适合算法和课程作业', badge: 'main.cpp', file: 'main.cpp', defaultName: 'HelloCpp',
-    body: '#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "你好，铁砧！" << endl;\n\n    // TODO: 在这里写你的代码，按 F5 运行\n    int a, b;\n    cout << "输入两个整数：";\n    cin >> a >> b;\n    cout << "它们的和是 " << a + b << endl;\n    return 0;\n}\n'
+    body: '#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "你好，Anvil！" << endl;\n\n    // TODO: 在这里写你的代码，按 F5 运行\n    int a, b;\n    cout << "输入两个整数：";\n    cin >> a >> b;\n    cout << "它们的和是 " << a + b << endl;\n    return 0;\n}\n'
   },
   {
     id: 'python', title: 'Python 程序', desc: '语法最友好，适合入门和小工具', badge: 'main.py', file: 'main.py', defaultName: 'HelloPython',
-    body: 'def main():\n    print("你好，铁砧！")\n\n    # TODO: 在这里写你的代码，按 F5 运行\n    name = input("你叫什么名字？")\n    print(f"很高兴认识你，{name}！")\n\n\nif __name__ == "__main__":\n    main()\n'
+    body: 'def main():\n    print("你好，Anvil！")\n\n    # TODO: 在这里写你的代码，按 F5 运行\n    name = input("你叫什么名字？")\n    print(f"很高兴认识你，{name}！")\n\n\nif __name__ == "__main__":\n    main()\n'
   },
   {
     id: 'java', title: 'Java 程序', desc: '面向对象入门，类名需与文件名 Main 一致', badge: 'Main.java', file: 'Main.java', defaultName: 'HelloJava',
-    body: 'import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("你好，铁砧！");\n\n        // TODO: 在这里写你的代码，按 F5 运行\n        Scanner sc = new Scanner(System.in);\n        System.out.print("输入两个整数：");\n        int a = sc.nextInt(), b = sc.nextInt();\n        System.out.println("它们的和是 " + (a + b));\n    }\n}\n'
+    body: 'import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("你好，Anvil！");\n\n        // TODO: 在这里写你的代码，按 F5 运行\n        Scanner sc = new Scanner(System.in);\n        System.out.print("输入两个整数：");\n        int a = sc.nextInt(), b = sc.nextInt();\n        System.out.println("它们的和是 " + (a + b));\n    }\n}\n'
   },
   {
     id: 'js', title: 'JavaScript（Node.js）', desc: '网页同款语言，在本机直接运行', badge: 'main.js', file: 'main.js', defaultName: 'HelloJS',
-    body: '// 你好，铁砧！按 F5 运行\nfunction greet(name) {\n  return `你好，${name}！`\n}\n\nconsole.log(greet("铁砧"))\n\n// TODO: 在这里写你的代码\n'
+    body: '// 你好，Anvil！按 F5 运行\nfunction greet(name) {\n  return `你好，${name}！`\n}\n\nconsole.log(greet("Anvil"))\n\n// TODO: 在这里写你的代码\n'
   }
 ]
 

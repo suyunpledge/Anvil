@@ -44,7 +44,7 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#171b24',
+    backgroundColor: '#070b1c',
     title: 'Anvil IDE',
     icon: path.join(__dirname, '../../resources/icon.ico'),
     titleBarStyle: 'hidden',
@@ -142,6 +142,12 @@ function registerIpc(): void {
     if (r.canceled || !r.filePaths.length) return null
     rememberFolder(r.filePaths[0])
     return r.filePaths[0]
+  })
+
+  // 星空极光背景开 / 关时，系统窗口按钮那块的底色跟着界面标题栏变
+  ipcMain.on('window:overlay', (_e, color: string) => {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return
+    try { win?.setTitleBarOverlay({ color, symbolColor: '#c9cfdc', height: 38 }) } catch { /* 非 Windows / 未启用 overlay */ }
   })
 
   // 新建项目：只选位置，不记入「最近打开」；项目建好后再记住项目文件夹本身

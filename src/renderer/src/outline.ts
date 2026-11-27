@@ -200,7 +200,7 @@ function toDocumentSymbols(model: monaco.editor.ITextModel, list: Sym[]): monaco
 export function initOutline(): void {
   for (const language of ['cpp', 'python', 'java', 'kotlin', 'markdown']) {
     monaco.languages.registerDocumentSymbolProvider(language, {
-      displayName: '铁砧大纲',
+      displayName: 'Anvil 大纲',
       provideDocumentSymbols: async (model) => toDocumentSymbols(model, await symbolsOf(model))
     })
   }

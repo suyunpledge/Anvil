@@ -148,7 +148,7 @@ export function initWorkbench(ctx: {
       { label: '键盘快捷键', icon: 'keyboard', run: showShortcuts },
       { label: '命令面板（搜索全部功能）', icon: 'command', shortcut: 'Ctrl+Shift+P', run: () => ctx.openPicker('commands') },
       '-',
-      { label: '关于铁砧 IDE', icon: 'info', run: showAbout }
+      { label: '关于 Anvil IDE', icon: 'info', run: showAbout }
     ]]
   ]
   initMenubar($('menubar'), menus, report)
@@ -256,7 +256,8 @@ export function initWorkbench(ctx: {
   const eol = $('st-eol') as HTMLButtonElement
   const cursor = $('st-cursor') as HTMLButtonElement
   function renderStatus(): void {
-    const model = editor.getModel()
+    // 没打开文件时 Monaco 仍有一个空的默认模型，状态栏这几项不该显示
+    const model = activeTab() ? editor.getModel() : null
     for (const item of [indent, eol, cursor, $('st-encoding'), $('st-lang')]) item.hidden = !model
     if (!model) return
     const o = model.getOptions()
@@ -269,6 +270,7 @@ export function initWorkbench(ctx: {
   editor.onDidChangeModelContent(() => { if (eol.textContent !== (editor.getModel()?.getEOL() === '\r\n' ? 'CRLF' : 'LF')) renderStatus() })
   bus.on('settings:changed', renderStatus)
   bus.on('tab:active', renderStatus)
+  bus.on('tabs:changed', renderStatus)
   renderStatus()
 
   cursor.addEventListener('click', () => void editorAction('editor.action.gotoLine'))

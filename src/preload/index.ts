@@ -22,6 +22,7 @@ const api = {
   },
   openFolder: (): Promise<string | null> => ipcRenderer.invoke('folder:open'),
   pickFolder: (title: string): Promise<string | null> => ipcRenderer.invoke('folder:pick', title),
+  setTitleBarColor: (color: string): void => ipcRenderer.send('window:overlay', color),
   rememberFolder: (folder: string): Promise<boolean> => ipcRenderer.invoke('folder:remember', folder),
   openFileDialog: (): Promise<string | null> => ipcRenderer.invoke('file:open'),
   recentFolders: (): Promise<{
